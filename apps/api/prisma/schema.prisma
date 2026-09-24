@@ -1,0 +1,109 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum MembershipRole {
+  OWNER
+  ADMIN
+  MANAGER
+  STAFF
+}
+
+enum RoomStatus {
+  AVAILABLE
+  OCCUPIED
+  CLEANING
+  MAINTENANCE
+  OUT_OF_SERVICE
+}
+
+model User {
+  id           String       @id @default(cuid())
+  email        String
+  passwordHash String
+  name         String
+  memberships  Membership[]
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@index([email])
+  @@map("users")
+}
+
+model Tenant {
+  id           String       @id @default(cuid())
+  name         String
+  memberships  Membership[]
+  properties   Property[]
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@map("tenants")
+}
+
+model Membership {
+  id        String         @id @default(cuid())
+  userId    String
+  tenantId  String
+  role      MembershipRole @default(STAFF)
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt DateTime       @default(now())
+
+  @@unique([userId, tenantId])
+  @@index([tenantId])
+  @@map("memberships")
+}
+
+model Property {
+  id          String     @id @default(cuid())
+  tenantId    String
+  name        String
+  timezone    String     @default("America/Monterrey")
+  tenant      Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  roomTypes   RoomType[]
+  rooms       Room[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([tenantId])
+  @@unique([tenantId, name])
+  @@map("properties")
+}
+
+model RoomType {
+  id          String     @id @default(cuid())
+  propertyId  String
+  name        String
+  code        String
+  maxGuests   Int        @default(2)
+  property    Property   @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  rooms       Room[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@unique([propertyId, code])
+  @@index([propertyId])
+  @@map("room_types")
+}
+
+model Room {
+  id          String     @id @default(cuid())
+  propertyId  String
+  roomTypeId  String
+  number      String
+  status      RoomStatus @default(AVAILABLE)
+  property    Property   @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  roomType    RoomType   @relation(fields: [roomTypeId], references: [id], onDelete: Restrict)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@unique([propertyId, number])
+  @@index([propertyId, status])
+  @@map("rooms")
+}
