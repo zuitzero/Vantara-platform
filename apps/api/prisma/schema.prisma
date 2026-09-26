@@ -14,6 +14,21 @@ enum MembershipRole {
   STAFF
 }
 
+enum PlanCode {
+  LOBBY
+  SUITE
+  GRAND
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  INCOMPLETE
+  PAUSED
+}
+
 enum RoomStatus {
   AVAILABLE
   OCCUPIED
@@ -22,7 +37,11 @@ enum RoomStatus {
   OUT_OF_SERVICE
 }
 
-model User {
+enum User {
+  id String @id
+}
+
+model UserAccount {
   id           String       @id @default(cuid())
   email        String
   passwordHash String
@@ -36,12 +55,14 @@ model User {
 }
 
 model Tenant {
-  id           String       @id @default(cuid())
+  id           String         @id @default(cuid())
   name         String
+  slug         String         @unique
   memberships  Membership[]
   properties   Property[]
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  subscription Subscription?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
 
   @@map("tenants")
 }
@@ -51,13 +72,31 @@ model Membership {
   userId    String
   tenantId  String
   role      MembershipRole @default(STAFF)
-  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      UserAccount    @relation(fields: [userId], references: [id], onDelete: Cascade)
   tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   createdAt DateTime       @default(now())
 
   @@unique([userId, tenantId])
   @@index([tenantId])
   @@map("memberships")
+}
+
+model Subscription {
+  id                   String             @id @default(cuid())
+  tenantId             String             @unique
+  plan                 PlanCode
+  status               SubscriptionStatus @default(TRIALING)
+  stripeCustomerId     String?            @unique
+  stripeSubscriptionId String?            @unique
+  currentPeriodStart   DateTime?
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean            @default(false)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  tenant               Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([plan, status])
+  @@map("subscriptions")
 }
 
 model Property {
