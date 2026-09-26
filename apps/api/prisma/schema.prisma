@@ -37,11 +37,7 @@ enum RoomStatus {
   OUT_OF_SERVICE
 }
 
-enum User {
-  id String @id
-}
-
-model UserAccount {
+model User {
   id           String       @id @default(cuid())
   email        String
   passwordHash String
@@ -72,7 +68,7 @@ model Membership {
   userId    String
   tenantId  String
   role      MembershipRole @default(STAFF)
-  user      UserAccount    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   createdAt DateTime       @default(now())
 
