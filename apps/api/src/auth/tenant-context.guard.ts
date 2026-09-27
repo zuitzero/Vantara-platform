@@ -1,4 +1,5 @@
 import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
+import { MembershipRole } from '@prisma/client';
 import { AuthenticatedRequest } from './auth.guard';
 import { TenantScopedRequest } from './tenant-context';
 
@@ -14,9 +15,7 @@ export class TenantContextGuard implements CanActivate {
     request.tenantContext = {
       tenantId: request.auth.tenant.id,
       membershipId: request.auth.membership.id,
-      role: request.auth.membership.role as TenantScopedRequest['tenantContext'] extends infer T
-        ? T extends { role: infer R } ? R : never
-        : never,
+      role: request.auth.membership.role as MembershipRole,
     };
 
     return true;
