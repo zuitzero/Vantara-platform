@@ -89,8 +89,8 @@ Protected backend operations must establish tenant context before accessing tena
 ## Authentication
 
 Initial target:
-- short-lived access token
-- secure refresh/session strategy
+- authenticated HttpOnly session cookie for the current foundation
+- explicit session expiration, active-tenant context and future rotation/revocation hardening
 - password hashing with a modern adaptive password hash
 - DTO validation
 - explicit authorization guards
