@@ -42,8 +42,8 @@ This allows the same person to belong to multiple hotel organizations without ma
 
 1. Verify authentication.
 2. Resolve the actor's active membership.
-3. Establish tenant context server-side.
-4. Authorize the requested action.
+3. Establish tenant context server-side from the session's active membership.
+4. Authorize the requested action with the membership role.
 5. Query through tenant-scoped data access.
 6. Return only records visible within that context.
 
@@ -64,3 +64,20 @@ The model should support:
 - organization-level administration
 - property-level authorization
 - platform-level support access with explicit privileged controls
+
+
+## Active tenant context
+
+A session stores an `activeTenantId`. The API verifies that the authenticated user still has a membership for that tenant before establishing request context.
+
+Tenant switching is performed through an authenticated API operation. The browser never gets authority to assign arbitrary tenant ownership to a resource.
+
+## Role authorization
+
+Initial roles are:
+- OWNER
+- ADMIN
+- MANAGER
+- STAFF
+
+Routes declare required roles through server-side guards. Role claims are derived from the membership stored in PostgreSQL, not from client input.
