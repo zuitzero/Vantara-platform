@@ -9,9 +9,9 @@
 - Authenticate protected routes.
 - Authorize access at tenant and property boundaries.
 - Never trust client-provided tenant ownership.
-- Hash passwords using bcrypt/argon2 with appropriate cost parameters.
+- Hash passwords using a modern adaptive password KDF with appropriate parameters (foundation uses scrypt).
 - Do not log passwords, tokens or sensitive guest information.
-- Use secure session/token expiration and rotation strategies.
+- Use secure HttpOnly session cookies with explicit expiration; add rotation, revocation controls and CSRF protection before production.
 - Maintain an audit trail for sensitive administrative actions.
 
 ## Authentication boundary
