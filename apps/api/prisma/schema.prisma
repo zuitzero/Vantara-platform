@@ -13,6 +13,9 @@ enum SubscriptionStatus { TRIALING ACTIVE PAST_DUE CANCELED INCOMPLETE PAUSED }
 enum RoomStatus { AVAILABLE OCCUPIED CLEANING MAINTENANCE OUT_OF_SERVICE }
 enum GuestStatus { ACTIVE INACTIVE }
 enum ReservationStatus { PENDING CONFIRMED CHECKED_IN CHECKED_OUT CANCELED NO_SHOW }
+enum GuestRequestStatus { CREATED ACKNOWLEDGED IN_PROGRESS COMPLETED CANCELLED }
+enum GuestRequestCategory { HOUSEKEEPING ROOM_SERVICE MAINTENANCE CONCIERGE FRONT_DESK AMENITIES OTHER }
+enum GuestRequestPriority { LOW NORMAL HIGH URGENT }
 
 model Session {
   id String @id @default(cuid())
@@ -46,6 +49,7 @@ model Tenant {
   properties Property[]
   guests Guest[]
   reservations Reservation[]
+  guestRequests GuestRequest[]
   subscription Subscription?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -89,6 +93,7 @@ model Property {
   rooms Room[]
   guests Guest[]
   reservations Reservation[]
+  guestRequests GuestRequest[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@index([tenantId])
@@ -120,6 +125,7 @@ model Room {
   roomType RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Restrict)
   guests Guest[]
   reservations Reservation[]
+  guestRequests GuestRequest[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@unique([propertyId, number])
@@ -141,6 +147,7 @@ model Guest {
   property Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
   room Room? @relation(fields: [roomId], references: [id], onDelete: SetNull)
   reservations Reservation[]
+  guestRequests GuestRequest[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@index([tenantId, status])
@@ -178,4 +185,30 @@ model Reservation {
   @@index([guestId])
   @@index([roomId, checkIn, checkOut])
   @@map("reservations")
+}
+model GuestRequest {
+  id String @id @default(cuid())
+  tenantId String
+  propertyId String
+  guestId String
+  roomId String?
+  title String
+  message String
+  category GuestRequestCategory
+  priority GuestRequestPriority @default(NORMAL)
+  status GuestRequestStatus @default(CREATED)
+  guestCount Int @default(1)
+  resolutionNote String?
+  completedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  guest Guest @relation(fields: [guestId], references: [id], onDelete: Cascade)
+  room Room? @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  @@index([tenantId, status, priority])
+  @@index([propertyId, status])
+  @@index([guestId, createdAt])
+  @@index([roomId, createdAt])
+  @@map("guest_requests")
 }
