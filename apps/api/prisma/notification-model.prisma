@@ -1,0 +1,24 @@
+// Notification persistence model for Vantara's event-driven notification layer.
+// Merge this model into schema.prisma before generating the next migration.
+model Notification {
+  id String @id @default(cuid())
+  tenantId String
+  audience String
+  recipientId String?
+  severity String
+  channel String
+  type String
+  title String
+  message String
+  metadata Json?
+  readAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, audience, createdAt])
+  @@index([tenantId, recipientId, readAt])
+  @@index([tenantId, createdAt])
+  @@map("notifications")
+}
