@@ -7,11 +7,9 @@ import { PrismaModule } from './prisma/prisma.module';
 import { PropertiesModule } from './properties/properties.module';
 import { ReservationsModule } from './reservations/reservations.module';
 import { RequestsModule } from './requests/requests.module';
-import { NotificationsModule } from './notifications/notifications.module';
-import { GuestRequestsModule } from './guest-requests/guest-requests.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, OnboardingModule, PropertiesModule, GuestsModule, ReservationsModule, RequestsModule, NotificationsModule, GuestRequestsModule],
+  imports: [PrismaModule, AuthModule, OnboardingModule, PropertiesModule, GuestsModule, ReservationsModule, RequestsModule],
   controllers: [HealthController],
 })
 export class AppModule {}
