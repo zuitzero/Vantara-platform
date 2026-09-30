@@ -63,7 +63,7 @@ export class RequestsService {
       priority: request.priority,
     });
 
-    events.forEach((event) => this.notifications.publish(event));
+    await Promise.all(events.map((event) => this.notifications.publish(event)));
     return request;
   }
 
@@ -92,7 +92,7 @@ export class RequestsService {
         requestId: request.id,
         status,
       });
-      if (event) this.notifications.publish(event);
+      if (event) await this.notifications.publish(event);
     }
 
     return request;
