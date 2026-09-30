@@ -1,39 +1,29 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-
-export type ServiceHealth = 'UP' | 'DOWN' | 'DEGRADED';
-
-export interface OperationsHealth {
-  service: 'vantara-api';
-  status: ServiceHealth;
-  checkedAt: string;
-  checks: {
-    database: { status: ServiceHealth; latencyMs: number };
-  };
-}
+import { HealthCheckResult, OperationsHealthSnapshot, ServiceHealth } from './operations.types';
 
 @Injectable()
 export class OperationsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async health(): Promise<OperationsHealth> {
+  private async checkDatabase(): Promise<HealthCheckResult> {
     const startedAt = performance.now();
     try {
       await this.prisma.$queryRaw`SELECT 1`;
       const latencyMs = Math.round(performance.now() - startedAt);
-      return {
-        service: 'vantara-api',
-        status: latencyMs > 500 ? 'DEGRADED' : 'UP',
-        checkedAt: new Date().toISOString(),
-        checks: { database: { status: 'UP', latencyMs } },
-      };
-    } catch {
-      return {
-        service: 'vantara-api',
-        status: 'DOWN',
-        checkedAt: new Date().toISOString(),
-        checks: { database: { status: 'DOWN', latencyMs: Math.round(performance.now() - startedAt) } },
-      };
+      return { status: latencyMs > 500 ? 'DEGRADED' : 'UP', latencyMs, checkedAt: new Date().toISOString() };
+    } catch (error) {
+      return { status: 'DOWN', latencyMs: Math.round(performance.now() - startedAt), checkedAt: new Date().toISOString(), error: error instanceof Error ? error.message : 'Database check failed' };
     }
+  }
+
+  async health(): Promise<OperationsHealthSnapshot> {
+    const checkedAt = new Date().toISOString();
+    const database = await this.checkDatabase();
+    const realtime: HealthCheckResult = { status: 'UP', latencyMs: 0, checkedAt };
+    const api: HealthCheckResult = { status: 'UP', latencyMs: 0, checkedAt };
+    const statuses: ServiceHealth[] = [database.status, realtime.status, api.status];
+    const status: ServiceHealth = statuses.includes('DOWN') ? 'DOWN' : statuses.includes('DEGRADED') ? 'DEGRADED' : 'UP';
+    return { service: 'vantara-api', status, checkedAt, checks: { database, realtime, api } };
   }
 }
