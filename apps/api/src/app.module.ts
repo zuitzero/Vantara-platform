@@ -7,9 +7,10 @@ import { PrismaModule } from './prisma/prisma.module';
 import { PropertiesModule } from './properties/properties.module';
 import { ReservationsModule } from './reservations/reservations.module';
 import { RequestsModule } from './requests/requests.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, OnboardingModule, PropertiesModule, GuestsModule, ReservationsModule, RequestsModule],
+  imports: [PrismaModule, AuthModule, OnboardingModule, PropertiesModule, GuestsModule, ReservationsModule, RequestsModule, NotificationsModule],
   controllers: [HealthController],
 })
 export class AppModule {}
