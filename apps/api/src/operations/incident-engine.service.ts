@@ -22,7 +22,7 @@ export class IncidentEngineService {
 
   constructor(private readonly notifications: NotificationsService) {}
 
-  async evaluate(snapshot: OperationsHealthSnapshot): Promise<OperationsIncident[]> {
+  async evaluate(snapshot: OperationsHealthSnapshot, zuitzeroTenantId?: string): Promise<OperationsIncident[]> {
     const incidents: OperationsIncident[] = [];
     for (const [service, check] of Object.entries(snapshot.checks)) {
       if (check.status === 'UP') continue;
@@ -44,10 +44,10 @@ export class IncidentEngineService {
       this.incidents.set(id, incident);
       incidents.push(incident);
 
-      if (!existing || existing.status === 'RESOLVED') {
+      if ((!existing || existing.status === 'RESOLVED') && zuitzeroTenantId) {
         this.logger.error(`${incident.title}: ${incident.message}`);
         await this.notifications.publish({
-          tenantId: 'zuitzero',
+          tenantId: zuitzeroTenantId,
           audience: 'ZUITZERO',
           severity,
           channel: 'IN_APP',
@@ -65,16 +65,18 @@ export class IncidentEngineService {
       if (check?.status === 'UP' && incident.status !== 'RESOLVED') {
         incident.status = 'RESOLVED';
         incident.resolvedAt = snapshot.checkedAt;
-        await this.notifications.publish({
-          tenantId: 'zuitzero',
-          audience: 'ZUITZERO',
-          severity: 'INFO',
-          channel: 'IN_APP',
-          type: 'operations.incident.resolved',
-          title: `${service} recovered`,
-          message: `Vantara ${service} is operational again.`,
-          metadata: { incidentId: id, service, resolvedAt: incident.resolvedAt },
-        });
+        if (zuitzeroTenantId) {
+          await this.notifications.publish({
+            tenantId: zuitzeroTenantId,
+            audience: 'ZUITZERO',
+            severity: 'INFO',
+            channel: 'IN_APP',
+            type: 'operations.incident.resolved',
+            title: `${service} recovered`,
+            message: `Vantara ${service} is operational again.`,
+            metadata: { incidentId: id, service, resolvedAt: incident.resolvedAt },
+          });
+        }
       }
     }
 
