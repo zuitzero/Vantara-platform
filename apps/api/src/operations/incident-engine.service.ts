@@ -1,51 +1,77 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { NotificationSeverity } from '@prisma/client';
+import { IncidentStatus, NotificationSeverity, Prisma } from '@prisma/client';
 import { NotificationsService } from '../notifications/notifications.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { OperationsHealthSnapshot } from './operations.types';
-
-export type IncidentStatus = 'OPEN' | 'ACKNOWLEDGED' | 'RESOLVED';
-
-export interface OperationsIncident {
-  id: string;
-  status: IncidentStatus;
-  severity: NotificationSeverity;
-  title: string;
-  message: string;
-  detectedAt: string;
-  resolvedAt?: string;
-}
 
 @Injectable()
 export class IncidentEngineService {
   private readonly logger = new Logger(IncidentEngineService.name);
-  private readonly incidents = new Map<string, OperationsIncident>();
 
-  constructor(private readonly notifications: NotificationsService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
-  async evaluate(snapshot: OperationsHealthSnapshot, zuitzeroTenantId?: string): Promise<OperationsIncident[]> {
-    const incidents: OperationsIncident[] = [];
+  async evaluate(snapshot: OperationsHealthSnapshot, zuitzeroTenantId?: string) {
     for (const [service, check] of Object.entries(snapshot.checks)) {
-      if (check.status === 'UP') continue;
+      const openIncident = await this.prisma.operationsIncident.findFirst({
+        where: { service, status: { in: [IncidentStatus.OPEN, IncidentStatus.ACKNOWLEDGED] }, ...(zuitzeroTenantId ? { tenantId: zuitzeroTenantId } : {}) },
+        orderBy: { firstDetectedAt: 'desc' },
+      });
 
-      const id = `ops:${service}`;
-      const existing = this.incidents.get(id);
+      if (check.status === 'UP') {
+        if (openIncident) {
+          const resolved = await this.prisma.operationsIncident.update({
+            where: { id: openIncident.id },
+            data: { status: IncidentStatus.RESOLVED, resolvedAt: new Date(snapshot.checkedAt), lastDetectedAt: new Date(snapshot.checkedAt) },
+          });
+          if (zuitzeroTenantId) {
+            await this.notifications.publish({
+              tenantId: zuitzeroTenantId,
+              audience: 'ZUITZERO',
+              severity: 'INFO',
+              channel: 'IN_APP',
+              type: 'operations.incident.resolved',
+              title: `${service} recovered`,
+              message: `Vantara ${service} is operational again.`,
+              metadata: { incidentId: resolved.id, service, resolvedAt: resolved.resolvedAt },
+            });
+          }
+        }
+        continue;
+      }
+
       const severity: NotificationSeverity = check.status === 'DOWN' ? 'CRITICAL' : 'WARNING';
-      const incident: OperationsIncident = existing ?? {
-        id,
-        status: 'OPEN',
-        severity,
-        title: `Vantara ${service} ${check.status.toLowerCase()}`,
-        message: check.error ?? `${service} health check is ${check.status.toLowerCase()} (${check.latencyMs}ms).`,
-        detectedAt: snapshot.checkedAt,
-      };
+      if (openIncident) {
+        await this.prisma.operationsIncident.update({
+          where: { id: openIncident.id },
+          data: {
+            severity,
+            lastDetectedAt: new Date(snapshot.checkedAt),
+            occurrenceCount: { increment: 1 },
+            message: check.error ?? `${service} health check is ${check.status.toLowerCase()} (${check.latencyMs}ms).`,
+          },
+        });
+        continue;
+      }
 
-      incident.severity = severity;
-      incident.status = incident.status === 'RESOLVED' ? 'OPEN' : incident.status;
-      this.incidents.set(id, incident);
-      incidents.push(incident);
+      const incident = await this.prisma.operationsIncident.create({
+        data: {
+          tenantId: zuitzeroTenantId ?? '',
+          service,
+          severity,
+          status: IncidentStatus.OPEN,
+          title: `Vantara ${service} ${check.status.toLowerCase()}`,
+          message: check.error ?? `${service} health check is ${check.status.toLowerCase()} (${check.latencyMs}ms).`,
+          firstDetectedAt: new Date(snapshot.checkedAt),
+          lastDetectedAt: new Date(snapshot.checkedAt),
+          metadata: { latencyMs: check.latencyMs } as Prisma.InputJsonValue,
+        },
+      });
 
-      if ((!existing || existing.status === 'RESOLVED') && zuitzeroTenantId) {
-        this.logger.error(`${incident.title}: ${incident.message}`);
+      this.logger.error(`${incident.title}: ${incident.message}`);
+      if (zuitzeroTenantId) {
         await this.notifications.publish({
           tenantId: zuitzeroTenantId,
           audience: 'ZUITZERO',
@@ -54,36 +80,19 @@ export class IncidentEngineService {
           type: 'operations.incident.opened',
           title: incident.title,
           message: incident.message,
-          metadata: { incidentId: id, service, detectedAt: incident.detectedAt },
+          metadata: { incidentId: incident.id, service, detectedAt: incident.firstDetectedAt },
         });
       }
     }
 
-    for (const [id, incident] of this.incidents) {
-      const service = id.replace('ops:', '') as keyof OperationsHealthSnapshot['checks'];
-      const check = snapshot.checks[service];
-      if (check?.status === 'UP' && incident.status !== 'RESOLVED') {
-        incident.status = 'RESOLVED';
-        incident.resolvedAt = snapshot.checkedAt;
-        if (zuitzeroTenantId) {
-          await this.notifications.publish({
-            tenantId: zuitzeroTenantId,
-            audience: 'ZUITZERO',
-            severity: 'INFO',
-            channel: 'IN_APP',
-            type: 'operations.incident.resolved',
-            title: `${service} recovered`,
-            message: `Vantara ${service} is operational again.`,
-            metadata: { incidentId: id, service, resolvedAt: incident.resolvedAt },
-          });
-        }
-      }
-    }
-
-    return Array.from(this.incidents.values());
+    return this.list(zuitzeroTenantId);
   }
 
-  list() {
-    return Array.from(this.incidents.values());
+  list(tenantId?: string) {
+    return this.prisma.operationsIncident.findMany({
+      where: tenantId ? { tenantId } : undefined,
+      orderBy: { firstDetectedAt: 'desc' },
+      take: 100,
+    });
   }
 }
