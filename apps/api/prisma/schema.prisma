@@ -19,6 +19,7 @@ enum GuestRequestPriority { LOW NORMAL HIGH URGENT }
 enum NotificationAudience { GUEST HOTEL ZUITZERO }
 enum NotificationSeverity { INFO WARNING HIGH CRITICAL }
 enum NotificationChannel { IN_APP PUSH WHATSAPP EMAIL }
+enum IncidentStatus { OPEN ACKNOWLEDGED RESOLVED }
 
 model Session {
   id String @id @default(cuid())
@@ -54,6 +55,7 @@ model Tenant {
   reservations Reservation[]
   guestRequests GuestRequest[]
   notifications Notification[]
+  incidents OperationsIncident[]
   subscription Subscription?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -205,13 +207,11 @@ model Notification {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-
   @@index([tenantId, audience, createdAt])
   @@index([tenantId, recipientId, readAt])
   @@index([tenantId, createdAt])
   @@map("notifications")
 }
-
 model GuestRequest {
   id String @id @default(cuid())
   tenantId String
@@ -237,4 +237,23 @@ model GuestRequest {
   @@index([guestId, createdAt])
   @@index([roomId, createdAt])
   @@map("guest_requests")
+}
+model OperationsIncident {
+  id String @id @default(cuid())
+  tenantId String
+  service String
+  severity NotificationSeverity
+  status IncidentStatus @default(OPEN)
+  title String
+  message String
+  firstDetectedAt DateTime @default(now())
+  lastDetectedAt DateTime @default(now())
+  resolvedAt DateTime?
+  occurrenceCount Int @default(1)
+  metadata Json?
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  @@unique([tenantId, service, status])
+  @@index([tenantId, severity, status])
+  @@index([tenantId, firstDetectedAt])
+  @@map("operations_incidents")
 }
