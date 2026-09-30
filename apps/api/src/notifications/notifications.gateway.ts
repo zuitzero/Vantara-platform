@@ -25,9 +25,18 @@ export class NotificationsGateway implements OnGatewayConnection {
     try {
       const token = this.readCookie(socket.handshake.headers.cookie ?? '', SESSION_COOKIE);
       if (!token) throw new UnauthorizedException('Authentication required.');
+
       const workspace = await this.authService.getWorkspace(token);
-      socket.join(`tenant:${workspace.tenant.id}:recipient:${workspace.user.id}`);
-      socket.join(`tenant:${workspace.tenant.id}:audience:HOTEL`);
+      const tenantId = workspace.tenant.id;
+      const recipientId = workspace.user.id;
+      const role = workspace.membership.role;
+
+      socket.join(`tenant:${tenantId}:recipient:${recipientId}`);
+
+      // Hotel-wide realtime events are restricted to hotel staff roles.
+      if (['OWNER', 'ADMIN', 'MANAGER', 'STAFF'].includes(role)) {
+        socket.join(`tenant:${tenantId}:audience:HOTEL`);
+      }
     } catch {
       socket.disconnect(true);
     }
@@ -35,13 +44,21 @@ export class NotificationsGateway implements OnGatewayConnection {
 
   emit(event: NotificationEvent & { id?: string }) {
     if (!this.server || !event.tenantId) return;
+
     const room = event.recipientId
       ? `tenant:${event.tenantId}:recipient:${event.recipientId}`
       : `tenant:${event.tenantId}:audience:${event.audience}`;
+
     this.server.to(room).emit('notification', event);
   }
 
   private readCookie(header: string, name: string) {
-    return header.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${name}=`))?.split('=').slice(1).join('=');
+    return header
+      .split(';')
+      .map((part) => part.trim())
+      .find((part) => part.startsWith(`${name}=`))
+      ?.split('=')
+      .slice(1)
+      .join('=');
   }
 }
