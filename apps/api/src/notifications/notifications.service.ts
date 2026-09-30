@@ -8,6 +8,30 @@ export class NotificationsService {
 
   constructor(private readonly prisma: PrismaService) {}
 
+  async listForHotel(tenantId: string, recipientId: string) {
+    return this.prisma.notification.findMany({
+      where: {
+        tenantId,
+        audience: 'HOTEL',
+        OR: [{ recipientId }, { recipientId: null }],
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+  }
+
+  async markRead(tenantId: string, notificationId: string, recipientId: string) {
+    return this.prisma.notification.updateMany({
+      where: {
+        id: notificationId,
+        tenantId,
+        audience: 'HOTEL',
+        OR: [{ recipientId }, { recipientId: null }],
+      },
+      data: { readAt: new Date() },
+    });
+  }
+
   async publish(event: NotificationEvent) {
     const notification = await this.prisma.notification.create({
       data: {
