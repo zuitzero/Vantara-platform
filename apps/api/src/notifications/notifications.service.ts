@@ -1,20 +1,21 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationEvent } from './notifications.types';
+import { NotificationsGateway } from './notifications.gateway';
 
 @Injectable()
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => NotificationsGateway))
+    private readonly gateway: NotificationsGateway,
+  ) {}
 
   async listForHotel(tenantId: string, recipientId: string) {
     return this.prisma.notification.findMany({
-      where: {
-        tenantId,
-        audience: 'HOTEL',
-        OR: [{ recipientId }, { recipientId: null }],
-      },
+      where: { tenantId, audience: 'HOTEL', OR: [{ recipientId }, { recipientId: null }] },
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
@@ -22,12 +23,7 @@ export class NotificationsService {
 
   async markRead(tenantId: string, notificationId: string, recipientId: string) {
     return this.prisma.notification.updateMany({
-      where: {
-        id: notificationId,
-        tenantId,
-        audience: 'HOTEL',
-        OR: [{ recipientId }, { recipientId: null }],
-      },
+      where: { id: notificationId, tenantId, audience: 'HOTEL', OR: [{ recipientId }, { recipientId: null }] },
       data: { readAt: new Date() },
     });
   }
@@ -47,7 +43,8 @@ export class NotificationsService {
       },
     });
 
-    this.logger.log(`Notification persisted: ${notification.id} (${event.type})`);
+    this.gateway.emit({ ...event, id: notification.id });
+    this.logger.log(`Notification persisted and emitted: ${notification.id} (${event.type})`);
     return notification;
   }
 }
