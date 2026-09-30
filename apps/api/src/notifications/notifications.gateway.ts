@@ -5,7 +5,15 @@ import { AuthService } from '../auth/auth.service';
 import { SESSION_COOKIE } from '../auth/auth.constants';
 import { NotificationEvent } from './notifications.types';
 
-@WebSocketGateway({ namespace: '/realtime', cors: { origin: true, credentials: true } })
+@WebSocketGateway({
+  namespace: '/realtime',
+  cors: {
+    origin: process.env.WEB_ORIGIN
+      ? process.env.WEB_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean)
+      : true,
+    credentials: true,
+  },
+})
 @Injectable()
 export class NotificationsGateway implements OnGatewayConnection {
   @WebSocketServer()
