@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRealtimeNotifications, RealtimeNotification } from './use-realtime-notifications';
 
 type Workspace = {
   user: { name: string; email: string };
@@ -9,11 +10,8 @@ type Workspace = {
   subscription: { plan: string; status: string } | null;
 };
 
-type Notification = {
+type Notification = RealtimeNotification & {
   id: string;
-  severity: 'INFO' | 'WARNING' | 'HIGH' | 'CRITICAL';
-  title: string;
-  message: string;
   createdAt: string;
   readAt: string | null;
 };
@@ -43,6 +41,7 @@ export default function Home() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [livePulse, setLivePulse] = useState(false);
 
   useEffect(() => {
     const base = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
@@ -57,6 +56,35 @@ export default function Home() {
       .then((data) => Array.isArray(data) && setNotifications(data))
       .catch(() => undefined);
   }, []);
+
+  const handleRealtimeNotification = useCallback((event: RealtimeNotification) => {
+    if (!event.id) return;
+
+    const notification: Notification = {
+      ...event,
+      id: event.id,
+      createdAt: event.createdAt ?? new Date().toISOString(),
+      readAt: null,
+    };
+
+    setNotifications((current) => [notification, ...current.filter((item) => item.id !== notification.id)].slice(0, 50));
+    setLivePulse(true);
+    window.setTimeout(() => setLivePulse(false), 1400);
+  }, []);
+
+  useRealtimeNotifications(handleRealtimeNotification);
+
+  const markRead = async (notificationId: string) => {
+    const base = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+    const response = await fetch(`${base}/notifications/${notificationId}/read`, {
+      method: 'PATCH',
+      credentials: 'include',
+    });
+
+    if (response.ok) {
+      setNotifications((current) => current.filter((item) => item.id !== notificationId));
+    }
+  };
 
   const name = workspace?.user.name ?? 'Workspace';
   const hotel = workspace?.tenant.name ?? 'Your hotel';
@@ -126,7 +154,7 @@ export default function Home() {
 
           <div className="topbar-actions">
             <div className="environment"><span /> DEMO ENVIRONMENT</div>
-            <button className="notification-button" onClick={() => setShowNotifications(!showNotifications)} aria-label="Notifications">
+            <button className={`notification-button ${livePulse ? 'live-pulse' : ''}`} onClick={() => setShowNotifications(!showNotifications)} aria-label="Notifications">
               ◌
               {unreadCount > 0 && <b>{unreadCount}</b>}
             </button>
@@ -140,13 +168,13 @@ export default function Home() {
                   <div className="empty-notifications">No unread notifications.</div>
                 ) : (
                   notifications.slice(0, 5).map((notification) => (
-                    <div className={`notification-item ${notification.severity.toLowerCase()}`} key={notification.id}>
+                    <button className={`notification-item ${notification.severity.toLowerCase()}`} key={notification.id} onClick={() => markRead(notification.id)}>
                       <span className="notification-pulse" />
                       <div>
                         <strong>{notification.title}</strong>
                         <p>{notification.message}</p>
                       </div>
-                    </div>
+                    </button>
                   ))
                 )}
               </div>
@@ -167,7 +195,7 @@ export default function Home() {
             <div className="metric-card" key={label}>
               <span>{label}</span>
               <strong>{value}</strong>
-              <small className={change.startsWith('-') ? 'negative' : ''}>{change} vs previous period</small>
+              <small>{change} vs previous period</small>
             </div>
           ))}
         </section>
@@ -197,7 +225,7 @@ export default function Home() {
                 <span className="panel-kicker">Today</span>
                 <h2>Hotel pulse</h2>
               </div>
-              <span className="live-label"><i /> LIVE</span>
+              <span className="live-label"><i /> REALTIME</span>
             </div>
             <Pulse label="Check-ins" detail="Expected arrivals" value="24" />
             <Pulse label="Check-outs" detail="Departures" value="17" />
