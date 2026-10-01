@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 type Workspace = {
   user: { name: string; email: string };
@@ -9,91 +9,223 @@ type Workspace = {
   subscription: { plan: string; status: string } | null;
 };
 
-const nav = ['Overview', 'Rooms', 'Guests', 'Reservations', 'Requests', 'Staff', 'Finance', 'Settings'];
-const bars = [38, 54, 47, 66, 58, 72, 64, 81, 69, 88, 76, 94, 84, 91];
+type Notification = {
+  id: string;
+  severity: 'INFO' | 'WARNING' | 'HIGH' | 'CRITICAL';
+  title: string;
+  message: string;
+  createdAt: string;
+  readAt: string | null;
+};
+
+const nav = [
+  { label: 'Overview', glyph: '◈' },
+  { label: 'Rooms', glyph: '▦' },
+  { label: 'Guests', glyph: '◎' },
+  { label: 'Reservations', glyph: '□' },
+  { label: 'Requests', glyph: '↗' },
+  { label: 'Staff', glyph: '◇' },
+  { label: 'Finance', glyph: '$' },
+  { label: 'Settings', glyph: '⚙' },
+];
+
+const demoMetrics = [
+  ['Occupancy', '82.4%', '+5.7%'],
+  ['Revenue', '$428,650', '+12.8%'],
+  ['Reservations', '486', '+8.4%'],
+  ['Open requests', '07', '-18.2%'],
+];
+
+const demoBars = [38, 54, 47, 66, 58, 72, 64, 81, 69, 88, 76, 94, 84, 91];
 
 export default function Home() {
   const [active, setActive] = useState('Overview');
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
 
   useEffect(() => {
     const base = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+
     fetch(`${base}/auth/me`, { credentials: 'include' })
       .then((response) => response.ok ? response.json() : null)
       .then((data) => data && setWorkspace(data))
+      .catch(() => undefined);
+
+    fetch(`${base}/notifications/unread`, { credentials: 'include' })
+      .then((response) => response.ok ? response.json() : [])
+      .then((data) => Array.isArray(data) && setNotifications(data))
       .catch(() => undefined);
   }, []);
 
   const name = workspace?.user.name ?? 'Workspace';
   const hotel = workspace?.tenant.name ?? 'Your hotel';
-  const role = workspace?.membership.role ?? 'Guest';
+  const role = workspace?.membership.role ?? 'DEMO';
   const plan = workspace?.subscription?.plan ?? 'DEMO';
-  const status = workspace?.subscription?.status ?? 'PREVIEW';
+  const unreadCount = notifications.length;
+
+  const greeting = useMemo(() => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good morning';
+    if (hour < 18) return 'Good afternoon';
+    return 'Good evening';
+  }, []);
 
   return (
     <main className="workspace">
       <aside className="sidebar">
-        <div className="brand">VANTARA<span> /</span></div>
+        <div className="brand">
+          <span className="brand-mark">V</span>
+          <span>VANTARA</span>
+          <small>HOTEL OPERATING SYSTEM</small>
+        </div>
+
         <div className="hotel-card">
           <div className="eyebrow">Active property</div>
           <div className="hotel-name">{hotel}</div>
-          <div className="plan">{plan} · {status}</div>
+          <div className="hotel-meta">
+            <span className="signal-dot" />
+            {plan} · {workspace?.subscription?.status ?? 'PREVIEW'}
+          </div>
         </div>
+
         <nav className="nav" aria-label="Workspace navigation">
-          {nav.map((item) => <button key={item} className={active === item ? 'active' : ''} onClick={() => setActive(item)}>{item}</button>)}
+          <div className="nav-label">Workspace</div>
+          {nav.map((item) => (
+            <button
+              key={item.label}
+              className={active === item.label ? 'active' : ''}
+              onClick={() => setActive(item.label)}
+            >
+              <span className="nav-glyph">{item.glyph}</span>
+              {item.label}
+              {item.label === 'Requests' && <span className="nav-count">07</span>}
+            </button>
+          ))}
         </nav>
-        <div className="user">
-          <div className="eyebrow">Signed in as</div>
-          <div className="user-name">{name}</div>
-          <div className="user-role">{role}</div>
+
+        <div className="sidebar-footer">
+          <div className="system-line"><span className="signal-dot" /> SYSTEM ONLINE</div>
+          <div className="user">
+            <div className="avatar">{name.slice(0, 1).toUpperCase()}</div>
+            <div>
+              <strong>{name}</strong>
+              <span>{role}</span>
+            </div>
+          </div>
         </div>
       </aside>
 
       <section className="main">
         <header className="topbar">
           <div>
-            <div className="eyebrow">{active}</div>
-            <h1>Good morning, {name}.</h1>
-            <div className="subtitle">Here is what is happening across {hotel} today.</div>
+            <div className="breadcrumb">VANTARA / {active.toUpperCase()}</div>
+            <h1>{greeting}, {name.split(' ')[0]}.</h1>
+            <p>One operational view of {hotel}.</p>
           </div>
-          <div className="status"><span className="dot" /> Vantara systems operational</div>
+
+          <div className="topbar-actions">
+            <div className="environment"><span /> DEMO ENVIRONMENT</div>
+            <button className="notification-button" onClick={() => setShowNotifications(!showNotifications)} aria-label="Notifications">
+              ◌
+              {unreadCount > 0 && <b>{unreadCount}</b>}
+            </button>
+            {showNotifications && (
+              <div className="notification-popover">
+                <div className="popover-head">
+                  <strong>Notifications</strong>
+                  <span>{unreadCount} unread</span>
+                </div>
+                {notifications.length === 0 ? (
+                  <div className="empty-notifications">No unread notifications.</div>
+                ) : (
+                  notifications.slice(0, 5).map((notification) => (
+                    <div className={`notification-item ${notification.severity.toLowerCase()}`} key={notification.id}>
+                      <span className="notification-pulse" />
+                      <div>
+                        <strong>{notification.title}</strong>
+                        <p>{notification.message}</p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
         </header>
 
-        <section className="metrics" aria-label="Hotel performance">
-          <Metric label="Occupancy" value="82.4%" change="↑ 5.7%" />
-          <Metric label="Revenue" value="$428,650" change="↑ 12.8%" />
-          <Metric label="Reservations" value="486" change="↑ 8.4%" />
-          <Metric label="Open requests" value="07" change="↓ 18.2%" down />
+        <div className="preview-banner">
+          <span className="preview-icon">◈</span>
+          <div>
+            <strong>Workspace preview</strong>
+            <span>Operational metrics below are demonstration data. Vantara will replace them with source-of-truth hotel data as modules go live.</span>
+          </div>
+        </div>
+
+        <section className="metrics" aria-label="Hotel performance preview">
+          {demoMetrics.map(([label, value, change]) => (
+            <div className="metric-card" key={label}>
+              <span>{label}</span>
+              <strong>{value}</strong>
+              <small className={change.startsWith('-') ? 'negative' : ''}>{change} vs previous period</small>
+            </div>
+          ))}
         </section>
 
         <section className="grid">
-          <div className="card">
-            <div className="card-title">Revenue & occupancy</div>
-            <div className="card-meta">Last 14 days · MXN</div>
-            <div className="chart" aria-label="Revenue trend visualization">{bars.map((height, index) => <div className="bar" key={index} style={{ height: `${height}%` }} />)}</div>
+          <div className="panel chart-panel">
+            <div className="panel-head">
+              <div>
+                <span className="panel-kicker">Performance</span>
+                <h2>Revenue & occupancy</h2>
+              </div>
+              <span className="panel-meta">14 day preview · MXN</span>
+            </div>
+            <div className="chart">
+              {demoBars.map((height, index) => (
+                <div className="bar-wrap" key={index}>
+                  <div className="bar" style={{ height: `${height}%` }} />
+                </div>
+              ))}
+            </div>
+            <div className="chart-axis"><span>14 days ago</span><span>Today</span></div>
           </div>
-          <div className="card">
-            <div className="card-title">Today</div>
-            <div className="card-meta">September 28, 2026</div>
-            <div className="request"><div><strong>Check-ins</strong><small>Expected arrivals</small></div><span className="badge">24</span></div>
-            <div className="request"><div><strong>Check-outs</strong><small>Departures</small></div><span className="badge">17</span></div>
-            <div className="request"><div><strong>Rooms cleaning</strong><small>Housekeeping queue</small></div><span className="badge">08</span></div>
-            <div className="request"><div><strong>Open requests</strong><small>Guest operations</small></div><span className="badge">07</span></div>
+
+          <div className="panel">
+            <div className="panel-head">
+              <div>
+                <span className="panel-kicker">Today</span>
+                <h2>Hotel pulse</h2>
+              </div>
+              <span className="live-label"><i /> LIVE</span>
+            </div>
+            <Pulse label="Check-ins" detail="Expected arrivals" value="24" />
+            <Pulse label="Check-outs" detail="Departures" value="17" />
+            <Pulse label="Rooms cleaning" detail="Housekeeping queue" value="08" />
+            <Pulse label="Open requests" detail="Guest operations" value="07" />
           </div>
         </section>
 
-        <section className="grid section">
-          <div className="card">
-            <div className="card-title">Recent guest requests</div>
-            <div className="card-meta">Live operational queue</div>
-            <div className="request"><div><strong>Extra towels · Room 407</strong><small>Housekeeping · 4 min ago</small></div><span className="badge">OPEN</span></div>
-            <div className="request"><div><strong>AC inspection · Room 214</strong><small>Maintenance · 11 min ago</small></div><span className="badge">ASSIGNED</span></div>
-            <div className="request"><div><strong>Room service · Room 508</strong><small>Food & beverage · 18 min ago</small></div><span className="badge">IN PROGRESS</span></div>
+        <section className="grid lower">
+          <div className="panel">
+            <div className="panel-head">
+              <div>
+                <span className="panel-kicker">Guest communication</span>
+                <h2>Recent requests</h2>
+              </div>
+              <button className="text-button" onClick={() => setActive('Requests')}>Open queue ↗</button>
+            </div>
+            <Request title="Extra towels · Room 407" detail="Housekeeping · 4 min ago" status="OPEN" />
+            <Request title="AC inspection · Room 214" detail="Maintenance · 11 min ago" status="ASSIGNED" />
+            <Request title="Room service · Room 508" detail="Food & beverage · 18 min ago" status="IN PROGRESS" />
           </div>
-          <div className="card insight">
-            <div className="card-title">Vantara Insight</div>
-            <div className="card-meta">Performance signal</div>
-            <p><span className="accent">Revenue is trending +12.8%.</span> This is currently a workspace preview. Later, this insight will be generated from the hotel’s real operating data by Vantara Intelligence.</p>
+
+          <div className="panel intelligence">
+            <div className="intel-orbit"><span /><span /><span /></div>
+            <span className="panel-kicker">VANTARA INTELLIGENCE</span>
+            <h2>Built to understand the hotel.</h2>
+            <p>When real operating data is connected, this layer will turn reservations, rooms, requests and guest communication into actionable operational context.</p>
+            <div className="intel-footer">SOURCE OF TRUTH <span>CONNECTED LATER</span></div>
           </div>
         </section>
       </section>
@@ -101,6 +233,10 @@ export default function Home() {
   );
 }
 
-function Metric({ label, value, change, down = false }: { label: string; value: string; change: string; down?: boolean }) {
-  return <div className="card"><div className="metric-label">{label}</div><div className="metric-value">{value}</div><div className={`change ${down ? 'down' : 'up'}`}>{change} vs previous period</div></div>;
+function Pulse({ label, detail, value }: { label: string; detail: string; value: string }) {
+  return <div className="pulse"><div><strong>{label}</strong><span>{detail}</span></div><b>{value}</b></div>;
+}
+
+function Request({ title, detail, status }: { title: string; detail: string; status: string }) {
+  return <div className="request"><div><strong>{title}</strong><span>{detail}</span></div><b>{status}</b></div>;
 }
