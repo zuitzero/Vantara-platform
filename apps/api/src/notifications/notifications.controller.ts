@@ -10,11 +10,30 @@ export class NotificationsController {
 
   @Get()
   list(@Req() req: any) {
-    return this.notifications.listForHotel(req.tenantContext.tenantId, req.auth.user.id);
+    return this.notifications.listForHotel(
+      req.tenantContext.tenantId,
+      req.auth.user.id,
+      req.auth.membership.role,
+    );
+  }
+
+  @Get('unread')
+  listUnread(@Req() req: any) {
+    return this.notifications.listForHotel(
+      req.tenantContext.tenantId,
+      req.auth.user.id,
+      req.auth.membership.role,
+      true,
+    );
   }
 
   @Patch(':notificationId/read')
   markRead(@Req() req: any, @Param('notificationId') notificationId: string) {
-    return this.notifications.markRead(req.tenantContext.tenantId, notificationId, req.auth.user.id);
+    return this.notifications.markRead(
+      req.tenantContext.tenantId,
+      notificationId,
+      req.auth.user.id,
+      req.auth.membership.role,
+    );
   }
 }
