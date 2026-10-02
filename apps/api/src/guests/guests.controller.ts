@@ -5,10 +5,12 @@ import { TenantContextGuard } from '../auth/tenant-context.guard';
 import { TenantScopedRequest } from '../auth/tenant-context';
 import { CreateGuestDto } from './guests.dto';
 
+import { GuestsService } from './guests.service';
+
 @Controller('guests')
 @UseGuards(AuthGuard, TenantContextGuard, PermissionsGuard)
 export class GuestsController {
-  constructor(private readonly guestsService: any) {}
+  constructor(private readonly guestsService: GuestsService) {}
 
   @Get()
   @Permissions('guests.read')
