@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NotificationEvent } from './notifications.types';
 import { NotificationsGateway } from './notifications.gateway';
 
-const HOTEL_STAFF_ROLES = new Set<MembershipRole>([MembershipRole.HOTEL_ADMIN, MembershipRole.HOTEL_STAFF, MembershipRole.ZUITZERO_ADMIN, MembershipRole.OWNER]);
+const HOTEL_STAFF_ROLES = new Set<MembershipRole>([MembershipRole.HOTEL_ADMIN, MembershipRole.HOTEL_STAFF]);
 
 @Injectable()
 export class NotificationsService {
