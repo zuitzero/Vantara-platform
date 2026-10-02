@@ -1,4 +1,5 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { MembershipRole, TenantType } from '@prisma/client';
 import { createHash, randomBytes, scrypt as nodeScrypt, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import { PrismaService } from '../prisma/prisma.service';
@@ -15,16 +16,21 @@ export class AuthService {
     const email = input.email.trim().toLowerCase();
     const user = await this.prisma.user.findUnique({
       where: { email },
-      include: { memberships: { orderBy: { createdAt: 'asc' } } },
+      include: {
+        memberships: {
+          include: { tenant: { select: { type: true } } },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
     });
 
     if (!user || !(await this.verifyPassword(input.password, user.passwordHash))) {
       throw new UnauthorizedException('Invalid email or password.');
     }
 
-    const membership = user.memberships[0];
+    const membership = this.selectInitialMembership(user.memberships);
     if (!membership) {
-      throw new UnauthorizedException('User has no active hotel membership.');
+      throw new UnauthorizedException('User has no valid active membership.');
     }
 
     const token = randomBytes(32).toString('base64url');
@@ -66,7 +72,7 @@ export class AuthService {
     );
 
     if (!membership) {
-      throw new UnauthorizedException('Active hotel membership is no longer available.');
+      throw new UnauthorizedException('Active membership is no longer available.');
     }
 
     return this.toWorkspace(session.user, membership);
@@ -87,7 +93,7 @@ export class AuthService {
     });
 
     if (!membership) {
-      throw new UnauthorizedException('You do not have access to this hotel.');
+      throw new UnauthorizedException('You do not have access to this workspace.');
     }
 
     await this.prisma.session.update({
@@ -101,6 +107,28 @@ export class AuthService {
   async logout(token: string): Promise<void> {
     const tokenHash = createHash('sha256').update(token).digest('hex');
     await this.prisma.session.deleteMany({ where: { tokenHash } });
+  }
+
+  private selectInitialMembership<T extends {
+    role: MembershipRole;
+    tenantId: string;
+    tenant: { type: TenantType };
+  }>(memberships: T[]): T | undefined {
+    const ownerPlatformMembership = memberships.find(
+      (membership) =>
+        membership.role === MembershipRole.OWNER &&
+        membership.tenant.type === TenantType.PLATFORM,
+    );
+
+    if (ownerPlatformMembership) return ownerPlatformMembership;
+
+    return memberships.find(
+      (membership) =>
+        membership.tenant.type === TenantType.HOTEL &&
+        [MembershipRole.GUEST, MembershipRole.HOTEL_STAFF, MembershipRole.HOTEL_ADMIN].includes(
+          membership.role,
+        ),
+    );
   }
 
   private toWorkspace(
