@@ -11,6 +11,8 @@ export const PERMISSIONS = {
   RESERVATIONS_MANAGE: 'reservations.manage',
   REQUESTS_READ: 'requests.read',
   REQUESTS_MANAGE: 'requests.manage',
+  NOTIFICATIONS_READ: 'notifications.read',
+  NOTIFICATIONS_MANAGE: 'notifications.manage',
   STAFF_READ: 'staff.read',
   STAFF_MANAGE: 'staff.manage',
   CRM_READ: 'crm.read',
@@ -40,6 +42,8 @@ const HOTEL_STAFF = new Set<Permission>([
   PERMISSIONS.RESERVATIONS_READ,
   PERMISSIONS.REQUESTS_READ,
   PERMISSIONS.REQUESTS_MANAGE,
+  PERMISSIONS.NOTIFICATIONS_READ,
+  PERMISSIONS.NOTIFICATIONS_MANAGE,
   PERMISSIONS.CRM_READ,
 ]);
 
