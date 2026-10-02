@@ -32,9 +32,23 @@ export class RbacService {
   }
 
   async assertBillingWrite(userId: string, tenantId: string): Promise<void> {
-    const access = await this.assertTenantAccess(userId, tenantId, 'billing.manage');
+    const platformOwner = await this.prisma.membership.findFirst({
+      where: {
+        userId,
+        role: MembershipRole.OWNER,
+        tenant: { type: TenantType.PLATFORM },
+      },
+      select: { id: true },
+    });
 
-    if (access.role !== MembershipRole.OWNER) {
+    if (platformOwner) return;
+
+    const membership = await this.prisma.membership.findUnique({
+      where: { userId_tenantId: { userId, tenantId } },
+      select: { role: true },
+    });
+
+    if (membership?.role !== MembershipRole.OWNER) {
       throw new ForbiddenException('Billing changes require OWNER authorization.');
     }
   }
