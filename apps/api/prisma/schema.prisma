@@ -7,7 +7,8 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum MembershipRole { OWNER ADMIN MANAGER STAFF }
+enum MembershipRole { GUEST HOTEL_STAFF HOTEL_ADMIN ZUITZERO_ADMIN OWNER }
+enum TenantType { HOTEL PLATFORM }
 enum PlanCode { LOBBY SUITE GRAND }
 enum SubscriptionStatus { TRIALING ACTIVE PAST_DUE CANCELED INCOMPLETE PAUSED }
 enum RoomStatus { AVAILABLE OCCUPIED CLEANING MAINTENANCE OUT_OF_SERVICE }
@@ -20,6 +21,8 @@ enum NotificationAudience { GUEST HOTEL ZUITZERO }
 enum NotificationSeverity { INFO WARNING HIGH CRITICAL }
 enum NotificationChannel { IN_APP PUSH WHATSAPP EMAIL }
 enum IncidentStatus { OPEN ACKNOWLEDGED RESOLVED }
+enum AuditAction { CREATE UPDATE DELETE READ LOGIN LOGOUT BILLING_VIEW BILLING_CHANGE ROLE_CHANGE PERMISSION_DENIED }
+enum AuditActorType { USER SYSTEM }
 
 model Session {
   id String @id @default(cuid())
@@ -40,6 +43,7 @@ model User {
   name String
   memberships Membership[]
   sessions Session[]
+  auditLogs AuditLog[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@index([email])
@@ -49,6 +53,7 @@ model Tenant {
   id String @id @default(cuid())
   name String
   slug String @unique
+  type TenantType @default(HOTEL)
   memberships Membership[]
   properties Property[]
   guests Guest[]
@@ -57,20 +62,22 @@ model Tenant {
   notifications Notification[]
   incidents OperationsIncident[]
   subscription Subscription?
+  auditLogs AuditLog[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  @@index([type])
   @@map("tenants")
 }
 model Membership {
   id String @id @default(cuid())
   userId String
   tenantId String
-  role MembershipRole @default(STAFF)
+  role MembershipRole @default(HOTEL_STAFF)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
   @@unique([userId, tenantId])
-  @@index([tenantId])
+  @@index([tenantId, role])
   @@map("memberships")
 }
 model Subscription {
@@ -256,4 +263,24 @@ model OperationsIncident {
   @@index([tenantId, severity, status])
   @@index([tenantId, firstDetectedAt])
   @@map("operations_incidents")
+}
+model AuditLog {
+  id String @id @default(cuid())
+  tenantId String?
+  actorUserId String?
+  actorType AuditActorType @default(USER)
+  action AuditAction
+  resourceType String
+  resourceId String?
+  success Boolean @default(true)
+  ipAddress String?
+  userAgent String?
+  metadata Json?
+  createdAt DateTime @default(now())
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  actorUser User? @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  @@index([tenantId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([resourceType, resourceId, createdAt])
+  @@map("audit_logs")
 }
