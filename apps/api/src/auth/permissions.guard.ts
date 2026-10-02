@@ -1,4 +1,4 @@
-import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
+import { CanActivate, ExecutionContext, ForbiddenException, Injectable, SetMetadata } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Permission } from '../rbac/rbac.types';
 import { RbacService } from '../rbac/rbac.service';
@@ -6,7 +6,7 @@ import { AuthenticatedRequest } from './auth.guard';
 import { TenantScopedRequest } from './tenant-context';
 
 export const PERMISSIONS_KEY = 'vantara_permissions';
-export const Permissions = (...permissions: Permission[]) => Reflect.metadata(PERMISSIONS_KEY, permissions);
+export const Permissions = (...permissions: Permission[]) => SetMetadata(PERMISSIONS_KEY, permissions);
 
 @Injectable()
 export class PermissionsGuard implements CanActivate {
