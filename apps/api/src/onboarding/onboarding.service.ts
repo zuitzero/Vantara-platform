@@ -31,14 +31,17 @@ export class OnboardingService {
           data: {
             name: input.hotelName.trim(),
             slug,
+            type: 'HOTEL',
           },
         });
 
+        // Hotel owners/managers are HOTEL_ADMIN. OWNER is reserved for
+        // the Zuitzero/Vantara platform owner and is never granted here.
         await tx.membership.create({
           data: {
             userId: user.id,
             tenantId: tenant.id,
-            role: MembershipRole.OWNER,
+            role: MembershipRole.HOTEL_ADMIN,
           },
         });
 
