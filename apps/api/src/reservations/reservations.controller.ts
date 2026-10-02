@@ -5,10 +5,12 @@ import { TenantContextGuard } from '../auth/tenant-context.guard';
 import { TenantScopedRequest } from '../auth/tenant-context';
 import { CreateReservationDto } from './reservations.dto';
 
+import { ReservationsService } from './reservations.service';
+
 @Controller('reservations')
 @UseGuards(AuthGuard, TenantContextGuard, PermissionsGuard)
 export class ReservationsController {
-  constructor(private readonly reservationsService: any) {}
+  constructor(private readonly reservationsService: ReservationsService) {}
 
   @Get()
   @Permissions('reservations.read')
