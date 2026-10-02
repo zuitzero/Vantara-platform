@@ -7,22 +7,124 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum MembershipRole { GUEST HOTEL_STAFF HOTEL_ADMIN ZUITZERO_ADMIN OWNER }
-enum TenantType { HOTEL PLATFORM }
-enum PlanCode { LOBBY SUITE GRAND }
-enum SubscriptionStatus { TRIALING ACTIVE PAST_DUE CANCELED INCOMPLETE PAUSED }
-enum RoomStatus { AVAILABLE OCCUPIED CLEANING MAINTENANCE OUT_OF_SERVICE }
-enum GuestStatus { ACTIVE INACTIVE }
-enum ReservationStatus { PENDING CONFIRMED CHECKED_IN CHECKED_OUT CANCELED NO_SHOW }
-enum GuestRequestStatus { CREATED ACKNOWLEDGED IN_PROGRESS COMPLETED CANCELLED }
-enum GuestRequestCategory { HOUSEKEEPING ROOM_SERVICE MAINTENANCE CONCIERGE FRONT_DESK AMENITIES OTHER }
-enum GuestRequestPriority { LOW NORMAL HIGH URGENT }
-enum NotificationAudience { GUEST HOTEL ZUITZERO }
-enum NotificationSeverity { INFO WARNING HIGH CRITICAL }
-enum NotificationChannel { IN_APP PUSH WHATSAPP EMAIL }
-enum IncidentStatus { OPEN ACKNOWLEDGED RESOLVED }
-enum AuditAction { CREATE UPDATE DELETE READ LOGIN LOGOUT BILLING_VIEW BILLING_CHANGE ROLE_CHANGE PERMISSION_DENIED }
-enum AuditActorType { USER SYSTEM }
+enum MembershipRole {
+  GUEST
+  HOTEL_STAFF
+  HOTEL_ADMIN
+  ZUITZERO_ADMIN
+  OWNER
+}
+
+enum TenantType {
+  HOTEL
+  PLATFORM
+}
+
+enum PlanCode {
+  LOBBY
+  SUITE
+  GRAND
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  INCOMPLETE
+  PAUSED
+}
+
+enum RoomStatus {
+  AVAILABLE
+  OCCUPIED
+  CLEANING
+  MAINTENANCE
+  OUT_OF_SERVICE
+}
+
+enum GuestStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ReservationStatus {
+  PENDING
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  CANCELED
+  NO_SHOW
+}
+
+enum GuestRequestStatus {
+  CREATED
+  ACKNOWLEDGED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum GuestRequestCategory {
+  HOUSEKEEPING
+  ROOM_SERVICE
+  MAINTENANCE
+  CONCIERGE
+  FRONT_DESK
+  AMENITIES
+  OTHER
+}
+
+enum GuestRequestPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum NotificationAudience {
+  GUEST
+  HOTEL
+  ZUITZERO
+}
+
+enum NotificationSeverity {
+  INFO
+  WARNING
+  HIGH
+  CRITICAL
+}
+
+enum NotificationChannel {
+  IN_APP
+  PUSH
+  WHATSAPP
+  EMAIL
+}
+
+enum IncidentStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  READ
+  LOGIN
+  LOGOUT
+  BILLING_VIEW
+  BILLING_CHANGE
+  ROLE_CHANGE
+  PERMISSION_DENIED
+}
+
+enum AuditActorType {
+  USER
+  SYSTEM
+}
 
 model Session {
   id String @id @default(cuid())
