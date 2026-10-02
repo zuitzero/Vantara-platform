@@ -1,9 +1,10 @@
 import { ForbiddenException, Inject, Injectable, Logger, NotFoundException, forwardRef } from '@nestjs/common';
+import { MembershipRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationEvent } from './notifications.types';
 import { NotificationsGateway } from './notifications.gateway';
 
-const HOTEL_STAFF_ROLES = new Set(['OWNER', 'ADMIN', 'MANAGER', 'STAFF']);
+const HOTEL_STAFF_ROLES = new Set<MembershipRole>([MembershipRole.HOTEL_ADMIN, MembershipRole.HOTEL_STAFF, MembershipRole.ZUITZERO_ADMIN, MembershipRole.OWNER]);
 
 @Injectable()
 export class NotificationsService {
@@ -15,13 +16,13 @@ export class NotificationsService {
     private readonly gateway: NotificationsGateway,
   ) {}
 
-  private assertHotelStaff(role: string) {
+  private assertHotelStaff(role: MembershipRole) {
     if (!HOTEL_STAFF_ROLES.has(role)) {
       throw new ForbiddenException('Hotel staff access required.');
     }
   }
 
-  async listForHotel(tenantId: string, recipientId: string, role: string, unreadOnly = false) {
+  async listForHotel(tenantId: string, recipientId: string, role: MembershipRole, unreadOnly = false) {
     this.assertHotelStaff(role);
 
     return this.prisma.notification.findMany({
@@ -36,7 +37,7 @@ export class NotificationsService {
     });
   }
 
-  async markRead(tenantId: string, notificationId: string, recipientId: string, role: string) {
+  async markRead(tenantId: string, notificationId: string, recipientId: string, role: MembershipRole) {
     this.assertHotelStaff(role);
 
     const result = await this.prisma.notification.updateMany({
