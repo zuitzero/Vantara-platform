@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
-import './globals.css';
+import '../src/app/globals.css';
 
 export const metadata: Metadata = {
   title: 'Vantara',
@@ -14,3 +14,4 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
     </html>
   );
 }
+

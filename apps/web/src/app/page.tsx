@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Overview } from './overview';
 import { RequestsCenter } from './requests-center';
 import { RoomsCenter } from './rooms-center';
+import { ReservationsCenter } from './reservations-center';
 import { OperationsCenter } from './operations-center';
 import { useRealtimeNotifications, RealtimeNotification } from './use-realtime-notifications';
 import './command-center.css';
@@ -28,7 +29,7 @@ const nav: NavItem[] = [
   { label: 'Overview', glyph: '◈', live: true },
   { label: 'Rooms', glyph: '▦', live: true },
   { label: 'Guests', glyph: '◎' },
-  { label: 'Reservations', glyph: '□' },
+  { label: 'Reservations', glyph: '□', live: true },
   { label: 'Requests', glyph: '↗', live: true },
   { label: 'Housekeeping', glyph: '⌁', live: true },
   { label: 'Maintenance', glyph: '◇', live: true },
@@ -115,6 +116,7 @@ export default function Home() {
   }
 
   let content = <Overview base={base} />;
+  if (active === 'Reservations') content = <ReservationsCenter base={base} canManage={isHotelAdmin} />;
   if (active === 'Requests') content = <RequestsCenter />;
   if (active === 'Rooms') content = <RoomsCenter base={base} canManage={isHotelAdmin} />;
   if (active === 'Housekeeping') content = <OperationsCenter base={base} mode="housekeeping" />;
@@ -140,3 +142,4 @@ export default function Home() {
     </section>
   </main>;
 }
+
