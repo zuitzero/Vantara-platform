@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { HousekeepingStatus, RoomStatus } from '@prisma/client';
+import { HousekeepingStatus, RoomReadinessStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateHousekeepingTaskDto, UpdateHousekeepingTaskDto } from './housekeeping.dto';
 
@@ -35,8 +35,11 @@ export class HousekeepingService {
       include: { room: { include: { roomType: true } }, property: true },
     });
 
-    if (room.status !== RoomStatus.CLEANING) {
-      await this.prisma.room.update({ where: { id: room.id }, data: { status: RoomStatus.CLEANING } });
+    if (room.readinessStatus !== RoomReadinessStatus.CLEANING) {
+      await this.prisma.room.update({
+        where: { id: room.id },
+        data: { readinessStatus: RoomReadinessStatus.CLEANING },
+      });
     }
     return task;
   }
@@ -60,7 +63,10 @@ export class HousekeepingService {
     });
 
     if (nextStatus === HousekeepingStatus.COMPLETED) {
-      await this.prisma.room.update({ where: { id: current.roomId }, data: { status: RoomStatus.AVAILABLE } });
+      await this.prisma.room.update({
+        where: { id: current.roomId },
+        data: { readinessStatus: RoomReadinessStatus.READY },
+      });
     }
     return task;
   }
