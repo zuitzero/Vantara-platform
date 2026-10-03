@@ -1,0 +1,15 @@
+import { Module } from '@nestjs/common';
+import { AuthModule } from '../auth/auth.module';
+import { PropertiesController } from './properties.controller';
+import { PropertiesService } from './properties.service';
+import { RoomTypesController } from './room-types.controller';
+import { RoomTypesService } from './room-types.service';
+import { RoomsController } from './rooms.controller';
+import { RoomsService } from './rooms.service';
+
+@Module({
+  imports: [AuthModule],
+  controllers: [PropertiesController, RoomTypesController, RoomsController],
+  providers: [PropertiesService, RoomTypesService, RoomsService],
+})
+export class PropertiesModule {}

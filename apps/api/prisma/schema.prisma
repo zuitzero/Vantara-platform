@@ -1,0 +1,387 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum MembershipRole {
+  GUEST
+  HOTEL_STAFF
+  HOTEL_ADMIN
+  ZUITZERO_ADMIN
+  OWNER
+}
+
+enum TenantType {
+  HOTEL
+  PLATFORM
+}
+
+enum PlanCode {
+  LOBBY
+  SUITE
+  GRAND
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  INCOMPLETE
+  PAUSED
+}
+
+enum RoomStatus {
+  AVAILABLE
+  OCCUPIED
+  CLEANING
+  MAINTENANCE
+  OUT_OF_SERVICE
+}
+
+enum GuestStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ReservationStatus {
+  PENDING
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  CANCELED
+  NO_SHOW
+}
+
+enum GuestRequestStatus {
+  CREATED
+  ACKNOWLEDGED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum GuestRequestCategory {
+  HOUSEKEEPING
+  ROOM_SERVICE
+  MAINTENANCE
+  CONCIERGE
+  FRONT_DESK
+  AMENITIES
+  OTHER
+}
+
+enum GuestRequestPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum NotificationAudience {
+  GUEST
+  HOTEL
+  ZUITZERO
+}
+
+enum NotificationSeverity {
+  INFO
+  WARNING
+  HIGH
+  CRITICAL
+}
+
+enum NotificationChannel {
+  IN_APP
+  PUSH
+  WHATSAPP
+  EMAIL
+}
+
+enum IncidentStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  READ
+  LOGIN
+  LOGOUT
+  BILLING_VIEW
+  BILLING_CHANGE
+  ROLE_CHANGE
+  PERMISSION_DENIED
+}
+
+enum AuditActorType {
+  USER
+  SYSTEM
+}
+
+model Session {
+  id String @id @default(cuid())
+  userId String
+  activeTenantId String?
+  tokenHash String @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, expiresAt])
+  @@index([activeTenantId])
+  @@map("sessions")
+}
+model User {
+  id String @id @default(cuid())
+  email String @unique
+  passwordHash String
+  name String
+  memberships Membership[]
+  sessions Session[]
+  auditLogs AuditLog[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@map("users")
+}
+model Tenant {
+  id String @id @default(cuid())
+  name String
+  slug String @unique
+  type TenantType @default(HOTEL)
+  memberships Membership[]
+  properties Property[]
+  guests Guest[]
+  reservations Reservation[]
+  guestRequests GuestRequest[]
+  notifications Notification[]
+  incidents OperationsIncident[]
+  subscription Subscription?
+  auditLogs AuditLog[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([type])
+  @@map("tenants")
+}
+model Membership {
+  id String @id @default(cuid())
+  userId String
+  tenantId String
+  role MembershipRole @default(HOTEL_STAFF)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  @@unique([userId, tenantId])
+  @@index([tenantId, role])
+  @@map("memberships")
+}
+model Subscription {
+  id String @id @default(cuid())
+  tenantId String @unique
+  plan PlanCode
+  status SubscriptionStatus @default(TRIALING)
+  stripeCustomerId String? @unique
+  stripeSubscriptionId String? @unique
+  currentPeriodStart DateTime?
+  currentPeriodEnd DateTime?
+  cancelAtPeriodEnd Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  @@index([plan, status])
+  @@map("subscriptions")
+}
+model Property {
+  id String @id @default(cuid())
+  tenantId String
+  name String
+  timezone String @default("America/Monterrey")
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  roomTypes RoomType[]
+  rooms Room[]
+  guests Guest[]
+  reservations Reservation[]
+  guestRequests GuestRequest[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([tenantId])
+  @@unique([tenantId, name])
+  @@map("properties")
+}
+model RoomType {
+  id String @id @default(cuid())
+  propertyId String
+  name String
+  code String
+  maxGuests Int @default(2)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  rooms Room[]
+  reservations Reservation[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([propertyId, code])
+  @@index([propertyId])
+  @@map("room_types")
+}
+model Room {
+  id String @id @default(cuid())
+  propertyId String
+  roomTypeId String
+  number String
+  status RoomStatus @default(AVAILABLE)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  roomType RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Restrict)
+  guests Guest[]
+  reservations Reservation[]
+  guestRequests GuestRequest[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([propertyId, number])
+  @@index([propertyId, status])
+  @@map("rooms")
+}
+model Guest {
+  id String @id @default(cuid())
+  tenantId String
+  propertyId String?
+  roomId String?
+  firstName String
+  lastName String
+  email String?
+  phone String?
+  status GuestStatus @default(ACTIVE)
+  notes String?
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  property Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  room Room? @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  reservations Reservation[]
+  guestRequests GuestRequest[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([tenantId, status])
+  @@index([propertyId])
+  @@index([roomId])
+  @@index([tenantId, email])
+  @@map("guests")
+}
+model Reservation {
+  id String @id @default(cuid())
+  tenantId String
+  propertyId String
+  guestId String
+  roomTypeId String
+  roomId String?
+  confirmationCode String
+  status ReservationStatus @default(PENDING)
+  checkIn DateTime
+  checkOut DateTime
+  adults Int @default(1)
+  children Int @default(0)
+  totalAmount Decimal? @db.Decimal(12, 2)
+  currency String @default("MXN")
+  notes String?
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  guest Guest @relation(fields: [guestId], references: [id], onDelete: Restrict)
+  roomType RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Restrict)
+  room Room? @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([tenantId, confirmationCode])
+  @@index([tenantId, status])
+  @@index([propertyId, checkIn, checkOut])
+  @@index([guestId])
+  @@index([roomId, checkIn, checkOut])
+  @@map("reservations")
+}
+model Notification {
+  id String @id @default(cuid())
+  tenantId String
+  audience NotificationAudience
+  recipientId String?
+  severity NotificationSeverity
+  channel NotificationChannel
+  type String
+  title String
+  message String
+  metadata Json?
+  readAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  @@index([tenantId, audience, createdAt])
+  @@index([tenantId, recipientId, readAt])
+  @@index([tenantId, createdAt])
+  @@map("notifications")
+}
+model GuestRequest {
+  id String @id @default(cuid())
+  tenantId String
+  propertyId String
+  guestId String
+  roomId String?
+  title String
+  message String
+  category GuestRequestCategory
+  priority GuestRequestPriority @default(NORMAL)
+  status GuestRequestStatus @default(CREATED)
+  guestCount Int @default(1)
+  resolutionNote String?
+  completedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  guest Guest @relation(fields: [guestId], references: [id], onDelete: Cascade)
+  room Room? @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  @@index([tenantId, status, priority])
+  @@index([propertyId, status])
+  @@index([guestId, createdAt])
+  @@index([roomId, createdAt])
+  @@map("guest_requests")
+}
+model OperationsIncident {
+  id String @id @default(cuid())
+  tenantId String
+  service String
+  severity NotificationSeverity
+  status IncidentStatus @default(OPEN)
+  title String
+  message String
+  firstDetectedAt DateTime @default(now())
+  lastDetectedAt DateTime @default(now())
+  resolvedAt DateTime?
+  occurrenceCount Int @default(1)
+  metadata Json?
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  @@unique([tenantId, service, status])
+  @@index([tenantId, severity, status])
+  @@index([tenantId, firstDetectedAt])
+  @@map("operations_incidents")
+}
+model AuditLog {
+  id String @id @default(cuid())
+  tenantId String?
+  actorUserId String?
+  actorType AuditActorType @default(USER)
+  action AuditAction
+  resourceType String
+  resourceId String?
+  success Boolean @default(true)
+  ipAddress String?
+  userAgent String?
+  metadata Json?
+  createdAt DateTime @default(now())
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  actorUser User? @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  @@index([tenantId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([resourceType, resourceId, createdAt])
+  @@map("audit_logs")
+}

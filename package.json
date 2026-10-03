@@ -1,0 +1,13 @@
+{
+  "name": "vantara-platform",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Vantara hotel operating platform",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @vantara/web --filter @vantara/api dev",
+    "build": "pnpm --recursive build",
+    "test": "pnpm --recursive test",
+    "lint": "pnpm --recursive lint"
+  },
+  "packageManager": "pnpm@10.15.0"
+}
