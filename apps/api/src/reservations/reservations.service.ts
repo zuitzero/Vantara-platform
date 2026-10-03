@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { HousekeepingStatus, ReservationStatus, RoomStatus } from '@prisma/client';
+import { HousekeepingStatus, ReservationStatus, RoomOccupancyStatus, RoomReadinessStatus } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateReservationDto } from './reservations.dto';
@@ -108,7 +108,10 @@ export class ReservationsService {
       await tx.reservation.update({ where: { id: current.id }, data: { status: nextStatus } });
 
       if (nextStatus === ReservationStatus.CHECKED_IN && current.roomId) {
-        await tx.room.update({ where: { id: current.roomId }, data: { status: RoomStatus.OCCUPIED } });
+        await tx.room.update({
+          where: { id: current.roomId },
+          data: { occupancyStatus: RoomOccupancyStatus.OCCUPIED },
+        });
         await tx.guest.update({
           where: { id: current.guestId },
           data: { roomId: current.roomId, propertyId: current.propertyId },
@@ -116,7 +119,13 @@ export class ReservationsService {
       }
 
       if (nextStatus === ReservationStatus.CHECKED_OUT && current.roomId) {
-        await tx.room.update({ where: { id: current.roomId }, data: { status: RoomStatus.CLEANING } });
+        await tx.room.update({
+          where: { id: current.roomId },
+          data: {
+            occupancyStatus: RoomOccupancyStatus.VACANT,
+            readinessStatus: RoomReadinessStatus.CLEANING,
+          },
+        });
         await tx.guest.update({ where: { id: current.guestId }, data: { roomId: null } });
 
         const existingTask = await tx.housekeepingTask.findFirst({
