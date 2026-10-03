@@ -1,9 +1,9 @@
-import { Body, Controller, Get, Param, Patch, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard, AuthenticatedRequest } from '../auth/auth.guard';
 import { Permissions, PermissionsGuard } from '../auth/permissions.guard';
 import { TenantContextGuard } from '../auth/tenant-context.guard';
 import { TenantScopedRequest } from '../auth/tenant-context';
-import { UpdateRoomOccupancyDto, UpdateRoomReadinessDto } from './rooms.dto';
+import { CreateRoomDto, UpdateRoomOccupancyDto, UpdateRoomReadinessDto } from './rooms.dto';
 import { RoomsService } from './rooms.service';
 
 @Controller('rooms')
@@ -15,6 +15,16 @@ export class RoomsController {
   @Permissions('rooms.read')
   list(@Req() request: AuthenticatedRequest & TenantScopedRequest) {
     return this.roomsService.listForTenant(request.tenantContext!.tenantId);
+  }
+
+  @Post('properties/:propertyId')
+  @Permissions('rooms.manage')
+  create(
+    @Req() request: AuthenticatedRequest & TenantScopedRequest,
+    @Param('propertyId') propertyId: string,
+    @Body() input: CreateRoomDto,
+  ) {
+    return this.roomsService.createForTenant(request.tenantContext!.tenantId, propertyId, input);
   }
 
   @Patch(':roomId/occupancy')
