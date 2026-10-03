@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import './guests-center.css';
+import { FrontDeskForm } from './front-desk-forms';
 
 type GuestStatus = 'ACTIVE' | 'INACTIVE';
 type ReservationContext = {
@@ -44,7 +45,8 @@ function matchesSearch(guest: Guest, query: string) {
     && (guest.phone ?? '').replace(/\D/g, '').includes(digits);
 }
 
-export function GuestsCenter({ base }: { base: string }) {
+export function GuestsCenter({ base, canManage, onReserve }: { base: string; canManage: boolean; onReserve: (guestId: string) => void }) {
+  const [creating, setCreating] = useState(false);
   const [guests, setGuests] = useState<Guest[]>([]);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<GuestStatus | 'ALL'>('ALL');
@@ -93,8 +95,9 @@ export function GuestsCenter({ base }: { base: string }) {
   return <section className="guests-center" aria-busy={loading}>
     <div className="requests-hero">
       <div><span className="panel-kicker">HOTEL OPERATIONS / FRONT DESK</span><h2>Guests / Front Desk</h2><p>Guest identity, assigned rooms and current or scheduled stays.</p></div>
-      <button className="refresh-button" disabled={loading} onClick={() => void load()}>{loading ? 'Syncing…' : 'Refresh'}</button>
+      <div className="front-desk-actions">{canManage && <button className="advance-button" onClick={() => setCreating(true)}>Create guest</button>}<button className="refresh-button" disabled={loading} onClick={() => void load()}>{loading ? 'Syncing…' : 'Refresh'}</button></div>
     </div>
+    {creating && canManage && <FrontDeskForm base={base} mode="guest" onCancel={() => setCreating(false)} onSaved={async guestId => { setCreating(false); clearFilters(); await load(); onReserve(guestId); }} />}
     <div className="guest-toolbar">
       <div className="guest-search"><label htmlFor="guest-search">Search guests</label><input id="guest-search" type="search" autoComplete="off" placeholder="Name, email or phone" value={query} onChange={event => setQuery(event.target.value)} /></div>
       <div className="guest-filter"><label htmlFor="guest-status">Guest record status</label><select id="guest-status" value={filter} onChange={event => setFilter(event.target.value as GuestStatus | 'ALL')}>
@@ -107,11 +110,11 @@ export function GuestsCenter({ base }: { base: string }) {
       : error ? <div className="request-empty" role="alert"><strong>Guests unavailable</strong><span>{error}</span><button className="refresh-button" onClick={() => void load()}>Retry</button></div>
       : guests.length === 0 ? <div className="request-empty"><strong>No guests recorded</strong><span>This hotel has no guest records yet.</span></div>
       : visible.length === 0 ? <div className="request-empty"><strong>No matching guests</strong><span>Try another name, email, phone or status.</span><button className="refresh-button" onClick={clearFilters}>Clear search and filters</button></div>
-      : <div className="request-list">{visible.map(guest => <GuestCard guest={guest} key={guest.id} />)}</div>}
+      : <div className="request-list">{visible.map(guest => <GuestCard guest={guest} key={guest.id} onReserve={canManage ? onReserve : undefined} />)}</div>}
   </section>;
 }
 
-function GuestCard({ guest }: { guest: Guest }) {
+function GuestCard({ guest, onReserve }: { guest: Guest; onReserve?: (guestId: string) => void }) {
   const currentStays = guest.reservations?.filter(reservation => reservation.status === 'CHECKED_IN') ?? [];
   const scheduledStays = guest.reservations?.filter(reservation => reservation.status !== 'CHECKED_IN') ?? [];
   const stays = [...currentStays, ...scheduledStays];
@@ -125,6 +128,7 @@ function GuestCard({ guest }: { guest: Guest }) {
         <div><dt>Current room assignment</dt><dd>{guest.room ? `Room ${guest.room.number} · ${guest.room.roomType.name}` : 'No room assigned'}</dd></div>
         <div><dt>Associated property</dt><dd>{guest.property?.name ?? 'No property associated'}</dd></div>
       </dl>
+      {onReserve && <button className="advance-button" onClick={() => onReserve(guest.id)}>Create reservation</button>}
       <div className="guest-reservations">
         <h4>Current / scheduled reservations</h4>
         {guest.reservations === undefined ? <p>Reservation context unavailable. Refresh after the API is updated.</p>

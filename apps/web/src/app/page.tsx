@@ -42,13 +42,14 @@ const nav: NavItem[] = [
 
 export default function Home() {
   const [active, setActive] = useState('Overview');
+  const [reservationGuestId, setReservationGuestId] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [workspaceLoading, setWorkspaceLoading] = useState(true);
   const [workspaceError, setWorkspaceError] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [livePulse, setLivePulse] = useState(false);
-  const base = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+  const base = process.env.NEXT_PUBLIC_API_URL ?? '/api';
 
   useEffect(() => {
     setWorkspaceLoading(true);
@@ -117,8 +118,8 @@ export default function Home() {
   }
 
   let content = <Overview base={base} />;
-  if (active === 'Guests') content = <GuestsCenter base={base} />;
-  if (active === 'Reservations') content = <ReservationsCenter base={base} canManage={isHotelAdmin} />;
+  if (active === 'Guests') content = <GuestsCenter base={base} canManage={isHotelAdmin} onReserve={guestId => { setReservationGuestId(guestId); setActive('Reservations'); }} />;
+  if (active === 'Reservations') content = <ReservationsCenter base={base} canManage={isHotelAdmin} initialGuestId={reservationGuestId} onGuestConsumed={() => setReservationGuestId(null)} />;
   if (active === 'Requests') content = <RequestsCenter />;
   if (active === 'Rooms') content = <RoomsCenter base={base} canManage={isHotelAdmin} />;
   if (active === 'Housekeeping') content = <OperationsCenter base={base} mode="housekeeping" />;

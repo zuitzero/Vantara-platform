@@ -29,7 +29,7 @@ export function RequestsCenter() {
   const [updating, setUpdating] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const base = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+    const base = process.env.NEXT_PUBLIC_API_URL ?? '/api';
     setLoading(true);
     try {
       const response = await fetch(`${base}/requests`, { credentials: 'include' });
@@ -49,7 +49,7 @@ export function RequestsCenter() {
   const updateStatus = async (request: RequestItem) => {
     const status = nextStatus[request.status];
     if (!status) return;
-    const base = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+    const base = process.env.NEXT_PUBLIC_API_URL ?? '/api';
     setUpdating(request.id);
     try {
       const response = await fetch(`${base}/requests/${request.id}`, {

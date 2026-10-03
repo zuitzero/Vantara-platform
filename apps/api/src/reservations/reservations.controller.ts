@@ -3,7 +3,7 @@ import { AuthGuard, AuthenticatedRequest } from '../auth/auth.guard';
 import { Permissions, PermissionsGuard } from '../auth/permissions.guard';
 import { TenantContextGuard } from '../auth/tenant-context.guard';
 import { TenantScopedRequest } from '../auth/tenant-context';
-import { CreateReservationDto, UpdateReservationStatusDto } from './reservations.dto';
+import { AssignReservationRoomDto, CreateReservationDto, UpdateReservationStatusDto } from './reservations.dto';
 
 import { ReservationsService } from './reservations.service';
 
@@ -38,5 +38,15 @@ export class ReservationsController {
     @Body() input: UpdateReservationStatusDto,
   ) {
     return this.reservationsService.updateStatusForTenant(request.tenantContext!.tenantId, reservationId, input.status);
+  }
+
+  @Patch(':reservationId/room')
+  @Permissions('reservations.manage')
+  assignRoom(
+    @Req() request: AuthenticatedRequest & TenantScopedRequest,
+    @Param('reservationId') reservationId: string,
+    @Body() input: AssignReservationRoomDto,
+  ) {
+    return this.reservationsService.assignRoomForTenant(request.tenantContext!.tenantId, reservationId, input.roomId);
   }
 }

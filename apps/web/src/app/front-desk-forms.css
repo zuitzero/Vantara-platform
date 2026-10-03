@@ -1,0 +1,11 @@
+.front-desk-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.front-desk-form { margin: 16px 0; padding: 18px; border: 1px solid var(--line-bright); border-radius: 10px; background: #0d1211; }
+.front-desk-form h3 { margin: 0 0 16px; font-size: 16px; }
+.front-desk-form fieldset { border: 0; padding: 0; margin: 0 0 16px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.front-desk-form label { display: grid; gap: 7px; font-size: 11px; color: var(--muted); min-width: 0; }
+.front-desk-form input, .front-desk-form select, .front-desk-form textarea { width: 100%; min-width: 0; padding: 10px; border: 1px solid var(--line-bright); border-radius: 7px; background: #080d0b; color: var(--text); font: inherit; }
+.front-desk-form small { line-height: 1.5; }
+.front-desk-form p { font-size: 12px; }
+.front-desk-form .form-wide { grid-column: 1 / -1; }
+.front-desk-form :focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+@media (max-width: 560px) { .front-desk-form fieldset { grid-template-columns: minmax(0, 1fr); } }

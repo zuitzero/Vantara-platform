@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import './reservations-center.css';
+import { FrontDeskForm } from './front-desk-forms';
 
 type Status = 'PENDING' | 'CONFIRMED' | 'CHECKED_IN' | 'CHECKED_OUT' | 'CANCELED' | 'NO_SHOW';
 type Reservation = {
-  id: string; status: Status; confirmationCode: string; checkIn: string; checkOut: string;
+  id: string; propertyId: string; roomTypeId: string; status: Status; confirmationCode: string; checkIn: string; checkOut: string;
   adults: number; children: number; notes: string | null;
   guest: { firstName: string; lastName: string };
   property: { name: string }; roomType: { name: string }; room: { number: string } | null;
@@ -20,7 +21,9 @@ const actions: Partial<Record<Status, { status: Status; label: string }[]>> = {
 const label = (status: string) => status.replaceAll('_', ' ');
 const date = (value: string) => new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(value));
 
-export function ReservationsCenter({ base, canManage }: { base: string; canManage: boolean }) {
+export function ReservationsCenter({ base, canManage, initialGuestId, onGuestConsumed }: { base: string; canManage: boolean; initialGuestId?: string | null; onGuestConsumed?: () => void }) {
+  const [creating, setCreating] = useState(!!initialGuestId);
+  const [assigning, setAssigning] = useState<Reservation | null>(null);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [filter, setFilter] = useState<Status | 'ALL'>('ALL');
   const [loading, setLoading] = useState(true);
@@ -70,7 +73,9 @@ export function ReservationsCenter({ base, canManage }: { base: string; canManag
   const visible = reservations.filter(item => filter === 'ALL' || item.status === filter);
   return <section className="reservations-center" aria-busy={loading}>
     <div className="requests-hero"><div><span className="panel-kicker">HOTEL OPERATIONS / STAYS</span><h2>Reservations</h2><p>Tenant-scoped stays and arrivals, with lifecycle updates managed by Vantara.</p></div>
-      <button className="refresh-button" disabled={loading || !!updating} onClick={() => void load()}>{loading ? 'Syncing…' : 'Refresh'}</button></div>
+      <div className="front-desk-actions">{canManage && <button className="advance-button" disabled={!!updating} onClick={() => setCreating(true)}>Create reservation</button>}<button className="refresh-button" disabled={loading || !!updating} onClick={() => void load()}>{loading ? 'Syncing…' : 'Refresh'}</button></div></div>
+    {creating && canManage && <FrontDeskForm base={base} mode="reservation" initialGuestId={initialGuestId ?? undefined} onCancel={() => { setCreating(false); onGuestConsumed?.(); }} onSaved={async () => { setCreating(false); onGuestConsumed?.(); await load(); }} />}
+    {assigning && canManage && <FrontDeskForm key={assigning.id} base={base} mode="assignment" reservation={assigning} onCancel={() => setAssigning(null)} onSaved={async () => { setAssigning(null); await load(); }} />}
     <div className="request-toolbar"><div className="request-filters" aria-label="Reservation status">
       {(['ALL', ...statuses] as const).map(status => <button key={status} aria-pressed={filter === status} className={filter === status ? 'selected' : ''} onClick={() => setFilter(status)}>{label(status)}</button>)}
     </div></div>
@@ -85,6 +90,7 @@ export function ReservationsCenter({ base, canManage }: { base: string; canManag
             <div><dt>Property</dt><dd>{reservation.property.name}</dd></div><div><dt>Guests</dt><dd>{reservation.adults} adults · {reservation.children} children</dd></div></dl>
           {reservation.notes && <p>{reservation.notes}</p>}
         </div><div className="request-card-side"><span className={`request-status ${reservation.status.toLowerCase()}`}>{label(reservation.status)}</span>
+          {canManage && ['PENDING', 'CONFIRMED'].includes(reservation.status) && <button className="advance-button" disabled={!!updating} onClick={() => setAssigning(reservation)}>{reservation.room ? 'Change room' : 'Assign room'}</button>}
           {canManage ? (actions[reservation.status] ?? []).map(action => <button className="advance-button" key={action.status} disabled={!!updating || ((action.status === 'CHECKED_IN' || action.status === 'CHECKED_OUT') && !reservation.room)} onClick={() => void transition(reservation, action.status)}>{updating === reservation.id ? 'Updating…' : action.label}</button>) : <span className="completed-label">Read only</span>}
           {canManage && !reservation.room && ['CONFIRMED', 'CHECKED_IN'].includes(reservation.status) && <small>A room assignment is required.</small>}
         </div></article>)}</div>}

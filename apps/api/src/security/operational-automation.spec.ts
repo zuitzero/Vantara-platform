@@ -12,9 +12,9 @@ describe('Operational automation', () => {
     const updated = { ...current, status: ReservationStatus.CHECKED_OUT, guest: {}, property: {}, roomType: {} };
 
     const tx = {
-      reservation: { update: jest.fn().mockResolvedValue(updated) },
-      room: { update: jest.fn().mockResolvedValue({}) },
-      guest: { update: jest.fn().mockResolvedValue({}) },
+      reservation: { findFirst: jest.fn().mockResolvedValue(current), update: jest.fn().mockResolvedValue(updated) },
+      room: { findFirst: jest.fn().mockResolvedValue({ id: 'room-1', propertyId: 'property-1', roomTypeId: 'rt-1' }), update: jest.fn().mockResolvedValue({}) },
+      guest: { findFirst: jest.fn().mockResolvedValue({ id: 'guest-1', tenantId: 'tenant-1' }), update: jest.fn().mockResolvedValue({}) },
       housekeepingTask: {
         findFirst: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockResolvedValue({ id: 'hk-1' }),
@@ -29,7 +29,7 @@ describe('Operational automation', () => {
     await service.updateStatusForTenant('tenant-1', 'res-1', ReservationStatus.CHECKED_OUT);
 
     expect(tx.room.update).toHaveBeenCalledWith({
-      where: { id: 'room-1' },
+      where: { id: 'room-1', property: { tenantId: 'tenant-1' } },
       data: {
         occupancyStatus: RoomOccupancyStatus.VACANT,
         readinessStatus: RoomReadinessStatus.CLEANING,
@@ -72,3 +72,4 @@ describe('Operational automation', () => {
     expect(tx.housekeepingTask.create).not.toHaveBeenCalled();
   });
 });
+
