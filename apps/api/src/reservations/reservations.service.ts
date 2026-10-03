@@ -1,8 +1,17 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { ReservationStatus } from '@prisma/client';
+import { HousekeepingStatus, ReservationStatus, RoomStatus } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateReservationDto } from './reservations.dto';
+
+const ALLOWED_TRANSITIONS: Record<ReservationStatus, ReservationStatus[]> = {
+  PENDING: [ReservationStatus.CONFIRMED, ReservationStatus.CANCELED],
+  CONFIRMED: [ReservationStatus.CHECKED_IN, ReservationStatus.CANCELED, ReservationStatus.NO_SHOW],
+  CHECKED_IN: [ReservationStatus.CHECKED_OUT],
+  CHECKED_OUT: [],
+  CANCELED: [],
+  NO_SHOW: [],
+};
 
 @Injectable()
 export class ReservationsService {
@@ -78,6 +87,61 @@ export class ReservationsService {
       },
       include: { guest: true, property: true, roomType: true, room: true },
     });
+  }
+
+  async updateStatusForTenant(tenantId: string, reservationId: string, nextStatus: ReservationStatus) {
+    const current = await this.prisma.reservation.findFirst({
+      where: { id: reservationId, tenantId },
+      include: { room: true },
+    });
+    if (!current) throw new NotFoundException('Reservation not found.');
+    if (current.status === nextStatus) return this.getForTenant(tenantId, reservationId);
+    if (!ALLOWED_TRANSITIONS[current.status].includes(nextStatus)) {
+      throw new BadRequestException(`Cannot move reservation from ${current.status} to ${nextStatus}.`);
+    }
+
+    if ((nextStatus === ReservationStatus.CHECKED_IN || nextStatus === ReservationStatus.CHECKED_OUT) && !current.roomId) {
+      throw new BadRequestException('A room must be assigned before check-in or check-out.');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.reservation.update({ where: { id: current.id }, data: { status: nextStatus } });
+
+      if (nextStatus === ReservationStatus.CHECKED_IN && current.roomId) {
+        await tx.room.update({ where: { id: current.roomId }, data: { status: RoomStatus.OCCUPIED } });
+        await tx.guest.update({
+          where: { id: current.guestId },
+          data: { roomId: current.roomId, propertyId: current.propertyId },
+        });
+      }
+
+      if (nextStatus === ReservationStatus.CHECKED_OUT && current.roomId) {
+        await tx.room.update({ where: { id: current.roomId }, data: { status: RoomStatus.CLEANING } });
+        await tx.guest.update({ where: { id: current.guestId }, data: { roomId: null } });
+
+        const existingTask = await tx.housekeepingTask.findFirst({
+          where: {
+            tenantId,
+            roomId: current.roomId,
+            status: { in: [HousekeepingStatus.PENDING, HousekeepingStatus.ASSIGNED, HousekeepingStatus.IN_PROGRESS] },
+          },
+        });
+
+        if (!existingTask) {
+          await tx.housekeepingTask.create({
+            data: {
+              tenantId,
+              propertyId: current.propertyId,
+              roomId: current.roomId,
+              title: `Post check-out cleaning · Room ${current.room?.number ?? ''}`.trim(),
+              notes: `Automatically created after reservation ${current.confirmationCode} checked out.`,
+            },
+          });
+        }
+      }
+    });
+
+    return this.getForTenant(tenantId, reservationId);
   }
 
   private createConfirmationCode() {
