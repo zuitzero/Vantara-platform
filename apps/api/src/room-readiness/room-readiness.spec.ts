@@ -124,11 +124,11 @@ describe('Authoritative room readiness', () => {
     await new ReservationsService(f.db as any, f.readiness).updateStatusForTenant('hotel-a', f.reservation.id, ReservationStatus.CHECKED_OUT);
     expect(f.room.readinessStatus).toBe('OUT_OF_SERVICE'); expect(f.hk[0].blocksRoom).toBe(true);
   });
-  it.each([GuestRequestCategory.MAINTENANCE, GuestRequestCategory.HOUSEKEEPING])('classifies new guest %s requests explicitly without occupancy writes', async category => {
+  it.each([GuestRequestCategory.MAINTENANCE, GuestRequestCategory.HOUSEKEEPING])('keeps new in-stay guest %s requests non-blocking', async category => {
     const f = fixture(); const notifications = { publish: jest.fn() };
     await new RequestsService(f.db as any, notifications as any, f.readiness).createForTenant('hotel-a', 'guest-a', { category, title: 'Room issue', message: 'Please help' });
-    expect(f.room.readinessStatus).toBe(category === 'MAINTENANCE' ? 'READY' : 'CLEANING'); expect(f.room.occupancyStatus).toBe('OCCUPIED');
-    expect((category === 'MAINTENANCE' ? f.mt : f.hk)[0].blocksRoom).toBe(category !== 'MAINTENANCE');
+    expect(f.room.readinessStatus).toBe('READY'); expect(f.room.occupancyStatus).toBe('OCCUPIED');
+    expect((category === 'MAINTENANCE' ? f.mt : f.hk)[0].blocksRoom).toBe(false);
     expect(f.db.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: 'Serializable' });
   });
   it('retries the whole transaction and reads concurrent blocking work again', async () => {
