@@ -131,7 +131,7 @@ describe('Tenant isolation boundaries', () => {
         roomTypeId: 'room-type-a',
         checkIn: new Date('2026-10-10'),
         checkOut: new Date('2026-10-12'),
-        totalAmount: 1000,
+        totalAmount: '1000',
         currency: 'MXN',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
