@@ -71,7 +71,7 @@ export class RequestsService {
             propertyId: guest.propertyId!,
             roomId: guest.roomId,
             title: input.title.trim(),
-            blocksRoom: true,
+            blocksRoom: false,
             notes: `Guest request ${created.id}: ${input.message.trim()}`,
             priority: this.toOperationsPriority(input.priority),
           },
