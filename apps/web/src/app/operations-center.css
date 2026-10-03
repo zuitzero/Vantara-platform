@@ -1,1 +1,5 @@
 .ops-center{animation:request-enter .35s ease both}.ops-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px}.ops-card{border:1px solid var(--line);background:linear-gradient(145deg,#0d1110,#090c0c);border-radius:11px;padding:16px}.ops-card.priority-urgent{border-left:2px solid var(--danger)}.ops-card-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}.ops-card h3{font:500 15px 'Space Grotesk',sans-serif;margin:8px 0 0}.ops-card>p{color:var(--muted);font-size:10px;line-height:1.6;margin:12px 0}.ops-action{margin-top:16px}.ops-card .completed-label{display:inline-block;margin-top:16px}@media(max-width:900px){.ops-grid{grid-template-columns:1fr}}
+
+.ops-assignment { display: grid; gap: 6px; margin-top: 12px; color: var(--muted); font-size: 10px; }
+.ops-assignment select { min-width: 0; width: 100%; padding: 9px; border: 1px solid var(--line-bright); border-radius: 7px; background: #0d1211; color: var(--text); }
+.ops-assignment select:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }

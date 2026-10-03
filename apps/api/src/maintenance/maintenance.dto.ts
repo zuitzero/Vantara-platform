@@ -6,12 +6,12 @@ export class CreateMaintenanceTicketDto {
   @IsString() @MinLength(2) @MaxLength(120) title!: string;
   @IsString() @MinLength(2) @MaxLength(2000) description!: string;
   @IsOptional() @IsEnum(OperationsPriority) priority?: OperationsPriority;
-  @IsOptional() @IsString() @MaxLength(120) assignedTo?: string;
+  @IsOptional() @IsString() @MinLength(1) assignedStaffId?: string | null;
 }
 
 export class UpdateMaintenanceTicketDto {
   @IsOptional() @IsEnum(MaintenanceStatus) status?: MaintenanceStatus;
   @IsOptional() @IsEnum(OperationsPriority) priority?: OperationsPriority;
-  @IsOptional() @IsString() @MaxLength(120) assignedTo?: string;
+  @IsOptional() @IsString() @MinLength(1) assignedStaffId?: string | null;
   @IsOptional() @IsString() @MaxLength(2000) resolutionNote?: string;
 }

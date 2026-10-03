@@ -102,6 +102,18 @@ enum MaintenanceStatus {
   CANCELLED
 }
 
+enum StaffDepartment {
+  FRONT_DESK
+  HOUSEKEEPING
+  MAINTENANCE
+  MANAGEMENT
+}
+
+enum StaffOperationalStatus {
+  ACTIVE
+  INACTIVE
+}
+
 enum OperationsPriority {
   LOW
   NORMAL
@@ -185,6 +197,7 @@ model Tenant {
   slug String @unique
   type TenantType @default(HOTEL)
   memberships Membership[]
+  staffProfiles OperationalStaff[]
   properties Property[]
   guests Guest[]
   reservations Reservation[]
@@ -209,6 +222,8 @@ model Membership {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
+  staffProfile OperationalStaff?
+  @@unique([id, tenantId])
   @@unique([userId, tenantId])
   @@index([tenantId, role])
   @@map("memberships")
@@ -247,6 +262,8 @@ model Property {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@index([tenantId])
+  staffProfiles OperationalStaff[]
+  @@unique([id, tenantId])
   @@unique([tenantId, name])
   @@map("properties")
 }
@@ -345,6 +362,27 @@ model Reservation {
   @@map("reservations")
 }
 
+model OperationalStaff {
+  id String @id @default(cuid())
+  tenantId String
+  membershipId String @unique
+  propertyId String?
+  department StaffDepartment
+  operationalStatus StaffOperationalStatus @default(ACTIVE)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  membership Membership @relation(fields: [membershipId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  property Property? @relation(fields: [propertyId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  housekeepingTasks HousekeepingTask[]
+  maintenanceTickets MaintenanceTicket[]
+  @@unique([id, tenantId])
+  @@unique([membershipId, tenantId])
+  @@index([tenantId, operationalStatus, department])
+  @@index([propertyId])
+  @@map("operational_staff")
+}
+
 model HousekeepingTask {
   id String @id @default(cuid())
   tenantId String
@@ -354,7 +392,9 @@ model HousekeepingTask {
   notes String?
   priority OperationsPriority @default(NORMAL)
   status HousekeepingStatus @default(PENDING)
-  assignedTo String?
+  assignedTo String? // Historical free-text label; no longer writable via the API.
+  assignedStaffId String?
+  assignedStaff OperationalStaff? @relation(fields: [assignedStaffId, tenantId], references: [id, tenantId], onDelete: Restrict)
   dueAt DateTime?
   startedAt DateTime?
   completedAt DateTime?
@@ -364,6 +404,7 @@ model HousekeepingTask {
   property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
   @@index([tenantId, status, priority])
+  @@index([tenantId, assignedStaffId, status])
   @@index([propertyId, status])
   @@index([roomId, status])
   @@map("housekeeping_tasks")
@@ -378,7 +419,9 @@ model MaintenanceTicket {
   description String
   priority OperationsPriority @default(NORMAL)
   status MaintenanceStatus @default(OPEN)
-  assignedTo String?
+  assignedTo String? // Historical free-text label; no longer writable via the API.
+  assignedStaffId String?
+  assignedStaff OperationalStaff? @relation(fields: [assignedStaffId, tenantId], references: [id, tenantId], onDelete: Restrict)
   resolutionNote String?
   startedAt DateTime?
   resolvedAt DateTime?
@@ -388,6 +431,7 @@ model MaintenanceTicket {
   property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
   @@index([tenantId, status, priority])
+  @@index([tenantId, assignedStaffId, status])
   @@index([propertyId, status])
   @@index([roomId, status])
   @@map("maintenance_tickets")
