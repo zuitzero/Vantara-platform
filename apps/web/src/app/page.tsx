@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Overview } from './overview';
 import { RequestsCenter } from './requests-center';
+import { RoomsCenter } from './rooms-center';
 import { useRealtimeNotifications, RealtimeNotification } from './use-realtime-notifications';
 import './command-center.css';
 
@@ -24,7 +25,7 @@ type NavItem = {
 
 const nav: NavItem[] = [
   { label: 'Overview', glyph: '◈', live: true },
-  { label: 'Rooms', glyph: '▦' },
+  { label: 'Rooms', glyph: '▦', live: true },
   { label: 'Guests', glyph: '◎' },
   { label: 'Reservations', glyph: '□' },
   { label: 'Requests', glyph: '↗', live: true },
@@ -118,7 +119,7 @@ export default function Home() {
       <div className="hotel-card"><div className="eyebrow">Active property</div><div className="hotel-name">{hotel}</div><div className="hotel-meta"><span className="signal-dot" />{plan} · {workspace.subscription?.status ?? 'UNSUBSCRIBED'}</div></div>
       <nav className="nav">
         <div className="nav-label">Workspace</div>
-        {visibleNav.map((item) => <button key={item.label} className={`${active === item.label ? 'active' : ''} ${!item.live ? 'nav-disabled' : ''}`} onClick={() => item.live && setActive(item.label)} disabled={!item.live} title={!item.live ? `${item.label} module is next in the roadmap` : undefined}><span className="nav-glyph">{item.glyph}</span>{item.label}{item.label === 'Requests' && <span className="nav-count">LIVE</span>}{!item.live && <span className="nav-soon">SOON</span>}</button>)}
+        {visibleNav.map((item) => <button key={item.label} className={`${active === item.label ? 'active' : ''} ${!item.live ? 'nav-disabled' : ''}`} onClick={() => item.live && setActive(item.label)} disabled={!item.live} title={!item.live ? `${item.label} module is next in the roadmap` : undefined}><span className="nav-glyph">{item.glyph}</span>{item.label}{item.live && item.label !== 'Overview' && <span className="nav-count">LIVE</span>}{!item.live && <span className="nav-soon">SOON</span>}</button>)}
       </nav>
       <div className="sidebar-footer"><div className="system-line"><span className="signal-dot" /> TENANT CONTEXT ACTIVE</div><div className="user"><div className="avatar">{name.slice(0, 1).toUpperCase()}</div><div><strong>{name}</strong><span>{role}</span></div></div></div>
     </aside>
@@ -129,7 +130,7 @@ export default function Home() {
         <div className="topbar-actions"><div className="environment live-environment"><span /> LIVE TENANT</div><button className={`notification-button ${livePulse ? 'live-pulse' : ''}`} onClick={() => setShowNotifications(!showNotifications)} aria-label="Notifications">◌{notifications.length > 0 && <b>{notifications.length}</b>}</button>{showNotifications && <div className="notification-popover"><div className="popover-head"><strong>Notifications</strong><span>{notifications.length} unread</span></div>{notifications.length === 0 ? <div className="empty-notifications">No unread notifications.</div> : notifications.slice(0, 5).map((notification) => <button className={`notification-item ${notification.severity.toLowerCase()}`} key={notification.id} onClick={() => markRead(notification.id)}><span className="notification-pulse" /><div><strong>{notification.title}</strong><p>{notification.message}</p></div></button>)}</div>}</div>
       </header>
 
-      {active === 'Requests' ? <RequestsCenter /> : <Overview base={base} />}
+      {active === 'Requests' ? <RequestsCenter /> : active === 'Rooms' ? <RoomsCenter base={base} canManage={isHotelAdmin} /> : <Overview base={base} />}
     </section>
   </main>;
 }

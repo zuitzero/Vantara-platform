@@ -10,9 +10,10 @@ import { RequestsModule } from './requests/requests.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { OperationsModule } from './operations/operations.module';
 import { RbacModule } from './rbac/rbac.module';
+import { RoomsModule } from './rooms/rooms.module';
 
 @Module({
-  imports: [PrismaModule, RbacModule, AuthModule, OnboardingModule, PropertiesModule, GuestsModule, ReservationsModule, RequestsModule, NotificationsModule, OperationsModule],
+  imports: [PrismaModule, RbacModule, AuthModule, OnboardingModule, PropertiesModule, RoomsModule, GuestsModule, ReservationsModule, RequestsModule, NotificationsModule, OperationsModule],
   controllers: [HealthController],
 })
 export class AppModule {}
