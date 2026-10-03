@@ -20,7 +20,7 @@ export class AuthService {
 
   async login(input: LoginDto): Promise<{ token: string; expiresAt: Date }> {
     const email = input.email.trim().toLowerCase();
-    const user = await this.prisma.user.findFirst({
+    const user = await this.prisma.user.findUnique({
       where: { email },
       include: {
         memberships: {
