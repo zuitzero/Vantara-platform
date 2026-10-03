@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import './operations-center.css';
 
 type Mode = 'housekeeping' | 'maintenance';
 type OpsItem = {
