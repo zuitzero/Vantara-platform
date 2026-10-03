@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { RoomStatus } from '@prisma/client';
+import { RoomOccupancyStatus, RoomReadinessStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -24,16 +24,28 @@ export class RoomsService {
     });
   }
 
-  async updateStatusForTenant(tenantId: string, roomId: string, status: RoomStatus) {
+  async updateOccupancyForTenant(tenantId: string, roomId: string, occupancyStatus: RoomOccupancyStatus) {
     const room = await this.prisma.room.findFirst({
       where: { id: roomId, property: { tenantId } },
     });
-
     if (!room) throw new NotFoundException('Room not found.');
 
     return this.prisma.room.update({
       where: { id: room.id },
-      data: { status },
+      data: { occupancyStatus },
+      include: { property: true, roomType: true },
+    });
+  }
+
+  async updateReadinessForTenant(tenantId: string, roomId: string, readinessStatus: RoomReadinessStatus) {
+    const room = await this.prisma.room.findFirst({
+      where: { id: roomId, property: { tenantId } },
+    });
+    if (!room) throw new NotFoundException('Room not found.');
+
+    return this.prisma.room.update({
+      where: { id: room.id },
+      data: { readinessStatus },
       include: { property: true, roomType: true },
     });
   }
