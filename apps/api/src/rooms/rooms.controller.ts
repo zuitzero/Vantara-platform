@@ -3,7 +3,7 @@ import { AuthGuard, AuthenticatedRequest } from '../auth/auth.guard';
 import { Permissions, PermissionsGuard } from '../auth/permissions.guard';
 import { TenantContextGuard } from '../auth/tenant-context.guard';
 import { TenantScopedRequest } from '../auth/tenant-context';
-import { UpdateRoomStatusDto } from './rooms.dto';
+import { UpdateRoomOccupancyDto, UpdateRoomReadinessDto } from './rooms.dto';
 import { RoomsService } from './rooms.service';
 
 @Controller('rooms')
@@ -17,13 +17,23 @@ export class RoomsController {
     return this.roomsService.listForTenant(request.tenantContext!.tenantId);
   }
 
-  @Patch(':roomId/status')
+  @Patch(':roomId/occupancy')
   @Permissions('rooms.manage')
-  updateStatus(
+  updateOccupancy(
     @Req() request: AuthenticatedRequest & TenantScopedRequest,
     @Param('roomId') roomId: string,
-    @Body() input: UpdateRoomStatusDto,
+    @Body() input: UpdateRoomOccupancyDto,
   ) {
-    return this.roomsService.updateStatusForTenant(request.tenantContext!.tenantId, roomId, input.status);
+    return this.roomsService.updateOccupancyForTenant(request.tenantContext!.tenantId, roomId, input.occupancyStatus);
+  }
+
+  @Patch(':roomId/readiness')
+  @Permissions('rooms.manage')
+  updateReadiness(
+    @Req() request: AuthenticatedRequest & TenantScopedRequest,
+    @Param('roomId') roomId: string,
+    @Body() input: UpdateRoomReadinessDto,
+  ) {
+    return this.roomsService.updateReadinessForTenant(request.tenantContext!.tenantId, roomId, input.readinessStatus);
   }
 }
