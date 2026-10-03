@@ -118,7 +118,7 @@ function Stat({ label, value, tone = '' }: { label: string; value: string; tone?
 }
 
 function RequestCard({ request, updating, onAdvance }: { request: RequestItem; updating: boolean; onAdvance: (request: RequestItem) => void }) {
-  const guestName = request.guest?.name ?? [request.guest?.firstName, request.guest?.lastName].filter(Boolean).join(' ') || 'Guest';
+  const guestName = request.guest?.name ?? ([request.guest?.firstName, request.guest?.lastName].filter(Boolean).join(' ') || 'Guest');
   const room = request.room?.number ?? request.room?.name ?? 'Unassigned';
   const next = nextStatus[request.status];
   const age = formatAge(request.createdAt);
