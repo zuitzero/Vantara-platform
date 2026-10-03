@@ -82,6 +82,29 @@ enum GuestRequestPriority {
   URGENT
 }
 
+enum HousekeepingStatus {
+  PENDING
+  ASSIGNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum MaintenanceStatus {
+  OPEN
+  ASSIGNED
+  IN_PROGRESS
+  RESOLVED
+  CANCELLED
+}
+
+enum OperationsPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
 enum NotificationAudience {
   GUEST
   HOTEL
@@ -138,6 +161,7 @@ model Session {
   @@index([activeTenantId])
   @@map("sessions")
 }
+
 model User {
   id String @id @default(cuid())
   email String @unique
@@ -150,6 +174,7 @@ model User {
   updatedAt DateTime @updatedAt
   @@map("users")
 }
+
 model Tenant {
   id String @id @default(cuid())
   name String
@@ -160,6 +185,8 @@ model Tenant {
   guests Guest[]
   reservations Reservation[]
   guestRequests GuestRequest[]
+  housekeepingTasks HousekeepingTask[]
+  maintenanceTickets MaintenanceTicket[]
   notifications Notification[]
   incidents OperationsIncident[]
   subscription Subscription?
@@ -169,6 +196,7 @@ model Tenant {
   @@index([type])
   @@map("tenants")
 }
+
 model Membership {
   id String @id @default(cuid())
   userId String
@@ -181,6 +209,7 @@ model Membership {
   @@index([tenantId, role])
   @@map("memberships")
 }
+
 model Subscription {
   id String @id @default(cuid())
   tenantId String @unique
@@ -197,6 +226,7 @@ model Subscription {
   @@index([plan, status])
   @@map("subscriptions")
 }
+
 model Property {
   id String @id @default(cuid())
   tenantId String
@@ -208,12 +238,15 @@ model Property {
   guests Guest[]
   reservations Reservation[]
   guestRequests GuestRequest[]
+  housekeepingTasks HousekeepingTask[]
+  maintenanceTickets MaintenanceTicket[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@index([tenantId])
   @@unique([tenantId, name])
   @@map("properties")
 }
+
 model RoomType {
   id String @id @default(cuid())
   propertyId String
@@ -229,6 +262,7 @@ model RoomType {
   @@index([propertyId])
   @@map("room_types")
 }
+
 model Room {
   id String @id @default(cuid())
   propertyId String
@@ -240,12 +274,15 @@ model Room {
   guests Guest[]
   reservations Reservation[]
   guestRequests GuestRequest[]
+  housekeepingTasks HousekeepingTask[]
+  maintenanceTickets MaintenanceTicket[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@unique([propertyId, number])
   @@index([propertyId, status])
   @@map("rooms")
 }
+
 model Guest {
   id String @id @default(cuid())
   tenantId String
@@ -270,6 +307,7 @@ model Guest {
   @@index([tenantId, email])
   @@map("guests")
 }
+
 model Reservation {
   id String @id @default(cuid())
   tenantId String
@@ -300,6 +338,55 @@ model Reservation {
   @@index([roomId, checkIn, checkOut])
   @@map("reservations")
 }
+
+model HousekeepingTask {
+  id String @id @default(cuid())
+  tenantId String
+  propertyId String
+  roomId String
+  title String
+  notes String?
+  priority OperationsPriority @default(NORMAL)
+  status HousekeepingStatus @default(PENDING)
+  assignedTo String?
+  dueAt DateTime?
+  startedAt DateTime?
+  completedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  @@index([tenantId, status, priority])
+  @@index([propertyId, status])
+  @@index([roomId, status])
+  @@map("housekeeping_tasks")
+}
+
+model MaintenanceTicket {
+  id String @id @default(cuid())
+  tenantId String
+  propertyId String
+  roomId String
+  title String
+  description String
+  priority OperationsPriority @default(NORMAL)
+  status MaintenanceStatus @default(OPEN)
+  assignedTo String?
+  resolutionNote String?
+  startedAt DateTime?
+  resolvedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  @@index([tenantId, status, priority])
+  @@index([propertyId, status])
+  @@index([roomId, status])
+  @@map("maintenance_tickets")
+}
+
 model Notification {
   id String @id @default(cuid())
   tenantId String
@@ -320,6 +407,7 @@ model Notification {
   @@index([tenantId, createdAt])
   @@map("notifications")
 }
+
 model GuestRequest {
   id String @id @default(cuid())
   tenantId String
@@ -346,6 +434,7 @@ model GuestRequest {
   @@index([roomId, createdAt])
   @@map("guest_requests")
 }
+
 model OperationsIncident {
   id String @id @default(cuid())
   tenantId String
@@ -365,6 +454,7 @@ model OperationsIncident {
   @@index([tenantId, firstDetectedAt])
   @@map("operations_incidents")
 }
+
 model AuditLog {
   id String @id @default(cuid())
   tenantId String?

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Overview } from './overview';
 import { RequestsCenter } from './requests-center';
 import { RoomsCenter } from './rooms-center';
+import { OperationsCenter } from './operations-center';
 import { useRealtimeNotifications, RealtimeNotification } from './use-realtime-notifications';
 import './command-center.css';
 
@@ -29,8 +30,8 @@ const nav: NavItem[] = [
   { label: 'Guests', glyph: '◎' },
   { label: 'Reservations', glyph: '□' },
   { label: 'Requests', glyph: '↗', live: true },
-  { label: 'Housekeeping', glyph: '⌁' },
-  { label: 'Maintenance', glyph: '◇' },
+  { label: 'Housekeeping', glyph: '⌁', live: true },
+  { label: 'Maintenance', glyph: '◇', live: true },
   { label: 'Staff', glyph: '◫', adminOnly: true },
   { label: 'CRM', glyph: '◌', adminOnly: true },
   { label: 'Finance', glyph: '$', adminOnly: true },
@@ -113,6 +114,12 @@ export default function Home() {
     return <main className="workspace-gate"><div className="gate-panel gate-error"><strong>Hotel workspace required</strong><span>This Command Center is restricted to HOTEL_ADMIN and HOTEL_STAFF memberships.</span></div></main>;
   }
 
+  let content = <Overview base={base} />;
+  if (active === 'Requests') content = <RequestsCenter />;
+  if (active === 'Rooms') content = <RoomsCenter base={base} canManage={isHotelAdmin} />;
+  if (active === 'Housekeeping') content = <OperationsCenter base={base} mode="housekeeping" />;
+  if (active === 'Maintenance') content = <OperationsCenter base={base} mode="maintenance" />;
+
   return <main className="workspace">
     <aside className="sidebar">
       <div className="brand"><span className="brand-mark">V</span><span>VANTARA</span><small>HOTEL OPERATING SYSTEM</small></div>
@@ -129,8 +136,7 @@ export default function Home() {
         <div><div className="breadcrumb">VANTARA / HOTEL COMMAND CENTER / {active.toUpperCase()}</div><h1>{greeting}, {name.split(' ')[0]}.</h1><p>Live operational view of {hotel}.</p></div>
         <div className="topbar-actions"><div className="environment live-environment"><span /> LIVE TENANT</div><button className={`notification-button ${livePulse ? 'live-pulse' : ''}`} onClick={() => setShowNotifications(!showNotifications)} aria-label="Notifications">◌{notifications.length > 0 && <b>{notifications.length}</b>}</button>{showNotifications && <div className="notification-popover"><div className="popover-head"><strong>Notifications</strong><span>{notifications.length} unread</span></div>{notifications.length === 0 ? <div className="empty-notifications">No unread notifications.</div> : notifications.slice(0, 5).map((notification) => <button className={`notification-item ${notification.severity.toLowerCase()}`} key={notification.id} onClick={() => markRead(notification.id)}><span className="notification-pulse" /><div><strong>{notification.title}</strong><p>{notification.message}</p></div></button>)}</div>}</div>
       </header>
-
-      {active === 'Requests' ? <RequestsCenter /> : active === 'Rooms' ? <RoomsCenter base={base} canManage={isHotelAdmin} /> : <Overview base={base} />}
+      {content}
     </section>
   </main>;
 }

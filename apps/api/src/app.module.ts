@@ -11,9 +11,11 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { OperationsModule } from './operations/operations.module';
 import { RbacModule } from './rbac/rbac.module';
 import { RoomsModule } from './rooms/rooms.module';
+import { HousekeepingModule } from './housekeeping/housekeeping.module';
+import { MaintenanceModule } from './maintenance/maintenance.module';
 
 @Module({
-  imports: [PrismaModule, RbacModule, AuthModule, OnboardingModule, PropertiesModule, RoomsModule, GuestsModule, ReservationsModule, RequestsModule, NotificationsModule, OperationsModule],
+  imports: [PrismaModule, RbacModule, AuthModule, OnboardingModule, PropertiesModule, RoomsModule, HousekeepingModule, MaintenanceModule, GuestsModule, ReservationsModule, RequestsModule, NotificationsModule, OperationsModule],
   controllers: [HealthController],
 })
 export class AppModule {}
