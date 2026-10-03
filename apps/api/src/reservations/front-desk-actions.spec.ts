@@ -1,3 +1,4 @@
+import { RoomReadinessService } from '../room-readiness/room-readiness.service';
 import { BadRequestException, ConflictException, ExecutionContext, NotFoundException, ValidationPipe } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { MembershipRole, Prisma, ReservationStatus, TenantType } from '@prisma/client';
@@ -20,7 +21,8 @@ function fixture(status: ReservationStatus = ReservationStatus.CONFIRMED) {
     },
     room: { findFirst: jest.fn().mockResolvedValue({ id: 'room-a', propertyId: 'property-a', roomTypeId: 'type-a' }), updateMany: jest.fn().mockResolvedValue({ count: 1 }), update: jest.fn().mockResolvedValue({}) },
     guest: { findFirst: jest.fn().mockResolvedValue({ id: 'guest-a' }), update: jest.fn().mockResolvedValue({}) },
-    housekeepingTask: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({}) },
+    maintenanceTicket: { count: jest.fn().mockResolvedValue(0) },
+    housekeepingTask: { count: jest.fn().mockResolvedValue(1), findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({}) },
   };
   const prisma = {
     ...tx,
@@ -28,7 +30,7 @@ function fixture(status: ReservationStatus = ReservationStatus.CONFIRMED) {
     roomType: { findFirst: jest.fn().mockResolvedValue({ id: 'type-a' }) },
     $transaction: jest.fn(async callback => callback(tx)),
   };
-  return { current, tx, prisma, service: new ReservationsService(prisma as any) };
+  return { current, tx, prisma, service: new ReservationsService(prisma as any, new RoomReadinessService(prisma as any)) };
 }
 
 describe('Front Desk reservation assignment and safe lifecycle', () => {
@@ -131,8 +133,9 @@ describe('Front Desk reservation assignment and safe lifecycle', () => {
     const { service, tx, current } = fixture(ReservationStatus.CHECKED_IN);
     tx.housekeepingTask.findFirst.mockResolvedValue({ id: 'existing-task' } as any);
     await service.updateStatusForTenant('hotel-a', current.id, ReservationStatus.CHECKED_OUT);
-    expect(tx.room.update).toHaveBeenCalledWith({ where: { id: 'room-a', property: { tenantId: 'hotel-a' } }, data: { occupancyStatus: 'VACANT', readinessStatus: 'CLEANING' } });
+    expect(tx.room.update).toHaveBeenCalledWith({ where: { id: 'room-a', property: { tenantId: 'hotel-a' } }, data: { occupancyStatus: 'VACANT' } });
     expect(tx.housekeepingTask.create).not.toHaveBeenCalled();
+    expect(tx.room.update).toHaveBeenCalledWith(expect.objectContaining({ data: { readinessStatus: 'CLEANING' } }));
   });
 
   it('retries serialization conflicts and returns a useful error when contention persists', async () => {

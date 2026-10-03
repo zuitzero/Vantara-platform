@@ -1,12 +1,13 @@
+import { RoomReadinessService } from '../room-readiness/room-readiness.service';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { MaintenanceStatus, StaffDepartment, RoomReadinessStatus } from '@prisma/client';
+import { MaintenanceStatus, StaffDepartment } from '@prisma/client';
 import { StaffService, staffIdentity } from '../staff/staff.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateMaintenanceTicketDto, UpdateMaintenanceTicketDto } from './maintenance.dto';
 
 @Injectable()
 export class MaintenanceService {
-  constructor(private readonly prisma: PrismaService, private readonly staff: StaffService) { }
+  constructor(private readonly prisma: PrismaService, private readonly staff: StaffService, private readonly readiness: RoomReadinessService) { }
 
   assigneesForTenant(tenantId: string) { return this.staff.assigneesForTenant(tenantId, StaffDepartment.MAINTENANCE); }
 
@@ -32,18 +33,14 @@ export class MaintenanceService {
           title: input.title.trim(),
           description: input.description.trim(),
           priority: input.priority,
+          blocksRoom: input.blocksRoom,
           assignedStaffId: input.assignedStaffId,
           status: input.assignedStaffId ? MaintenanceStatus.ASSIGNED : MaintenanceStatus.OPEN,
         },
         include: { room: { include: { roomType: true } }, property: true, assignedStaff: { include: { membership: staffIdentity } } },
       });
 
-      if (room.readinessStatus !== RoomReadinessStatus.MAINTENANCE) {
-        await tx.room.update({
-          where: { id: room.id, property: { tenantId } },
-          data: { readinessStatus: RoomReadinessStatus.MAINTENANCE },
-        });
-      }
+      await this.readiness.recalculate(tx, tenantId, room.id);
       return ticket;
     });
   }
@@ -55,7 +52,7 @@ export class MaintenanceService {
       if (!current) throw new NotFoundException('Maintenance ticket not found.');
 
       const terminal = (current.status === MaintenanceStatus.RESOLVED || current.status === MaintenanceStatus.CANCELLED);
-      if (terminal && (input.assignedStaffId !== undefined || (input.status !== undefined && input.status !== current.status))) {
+      if (terminal && (input.blocksRoom !== undefined || input.assignedStaffId !== undefined || (input.status !== undefined && input.status !== current.status))) {
         throw new BadRequestException('Closed work cannot be assigned or reopened.');
       }
       const assignedStaffId = input.assignedStaffId !== undefined ? input.assignedStaffId : current.assignedStaffId;
@@ -73,6 +70,7 @@ export class MaintenanceService {
         data: {
           status: nextStatus,
           priority: input.priority,
+          blocksRoom: input.blocksRoom,
           assignedStaffId: input.assignedStaffId,
           assignedTo: input.assignedStaffId !== undefined ? null : undefined,
           resolutionNote: input.resolutionNote?.trim(),
@@ -82,11 +80,8 @@ export class MaintenanceService {
         include: { room: { include: { roomType: true } }, property: true, assignedStaff: { include: { membership: staffIdentity } } },
       });
 
-      if (nextStatus === MaintenanceStatus.RESOLVED && current.status !== nextStatus) {
-        await tx.room.update({
-          where: { id: current.roomId, property: { tenantId } },
-          data: { readinessStatus: RoomReadinessStatus.READY },
-        });
+      if (nextStatus !== current.status || input.blocksRoom !== undefined) {
+        await this.readiness.recalculate(tx, tenantId, current.roomId);
       }
       return ticket;
     });

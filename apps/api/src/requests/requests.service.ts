@@ -1,3 +1,4 @@
+import { RoomReadinessService } from '../room-readiness/room-readiness.service';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   GuestRequestCategory,
@@ -16,6 +17,7 @@ export class RequestsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
+    private readonly readiness: RoomReadinessService,
   ) {}
 
   listForTenant(tenantId: string) {
@@ -36,14 +38,17 @@ export class RequestsService {
   }
 
   async createForTenant(tenantId: string, guestId: string, input: CreateGuestRequestDto) {
-    const guest = await this.prisma.guest.findFirst({
-      where: { id: guestId, tenantId },
-      include: { property: true, room: true },
-    });
-    if (!guest) throw new BadRequestException('Guest does not belong to the active hotel.');
-    if (!guest.propertyId) throw new BadRequestException('Guest must be assigned to a property before creating a request.');
+    const request = await this.readiness.transaction(async (tx) => {
+      const guest = await tx.guest.findFirst({
+        where: { id: guestId, tenantId },
+        include: { property: true, room: true },
+      });
+      if (!guest) throw new BadRequestException('Guest does not belong to the active hotel.');
+      if (!guest.propertyId) throw new BadRequestException('Guest must be assigned to a property before creating a request.');
 
-    const request = await this.prisma.$transaction(async (tx) => {
+      if (guest.roomId && !await tx.room.findFirst({ where: { id: guest.roomId, propertyId: guest.propertyId, property: { tenantId } } })) {
+        throw new BadRequestException('Guest room does not belong to the active hotel property.');
+      }
       const created = await tx.guestRequest.create({
         data: {
           tenantId,
@@ -66,6 +71,7 @@ export class RequestsService {
             propertyId: guest.propertyId!,
             roomId: guest.roomId,
             title: input.title.trim(),
+            blocksRoom: true,
             notes: `Guest request ${created.id}: ${input.message.trim()}`,
             priority: this.toOperationsPriority(input.priority),
           },
@@ -80,11 +86,15 @@ export class RequestsService {
             roomId: guest.roomId,
             title: input.title.trim(),
             description: input.message.trim(),
+            blocksRoom: false,
             priority: this.toOperationsPriority(input.priority),
           },
         });
       }
 
+      if (guest.roomId && (input.category === GuestRequestCategory.HOUSEKEEPING || input.category === GuestRequestCategory.MAINTENANCE)) {
+        await this.readiness.recalculate(tx, tenantId, guest.roomId);
+      }
       return created;
     });
 
@@ -146,3 +156,4 @@ export class RequestsService {
     }
   }
 }
+

@@ -1,3 +1,4 @@
+import { RoomReadinessService } from '../room-readiness/room-readiness.service';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { GuestsService } from '../guests/guests.service';
 import { PropertiesService } from '../properties/properties.service';
@@ -65,7 +66,7 @@ describe('Tenant isolation boundaries', () => {
   it('scopes reservation listing to the active tenant', async () => {
     prisma.reservation.findMany.mockResolvedValue([]);
 
-    await new ReservationsService(prisma).listForTenant('hotel-a');
+    await new ReservationsService(prisma, new RoomReadinessService(prisma)).listForTenant('hotel-a');
 
     expect(prisma.reservation.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { tenantId: 'hotel-a' } }),
@@ -75,7 +76,7 @@ describe('Tenant isolation boundaries', () => {
   it('scopes request listing to the active tenant', async () => {
     prisma.guestRequest.findMany.mockResolvedValue([]);
 
-    await new RequestsService(prisma, notifications).listForTenant('hotel-a');
+    await new RequestsService(prisma, notifications, new RoomReadinessService(prisma)).listForTenant('hotel-a');
 
     expect(prisma.guestRequest.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { tenantId: 'hotel-a' } }),
@@ -97,7 +98,7 @@ describe('Tenant isolation boundaries', () => {
     prisma.reservation.findFirst.mockResolvedValue(null);
 
     await expect(
-      new ReservationsService(prisma).getForTenant('hotel-a', 'reservation-from-hotel-b'),
+      new ReservationsService(prisma, new RoomReadinessService(prisma)).getForTenant('hotel-a', 'reservation-from-hotel-b'),
     ).rejects.toBeInstanceOf(NotFoundException);
 
     expect(prisma.reservation.findFirst).toHaveBeenCalledWith(
@@ -111,7 +112,7 @@ describe('Tenant isolation boundaries', () => {
     prisma.guestRequest.findFirst.mockResolvedValue(null);
 
     await expect(
-      new RequestsService(prisma, notifications).getForTenant('hotel-a', 'request-from-hotel-b'),
+      new RequestsService(prisma, notifications, new RoomReadinessService(prisma)).getForTenant('hotel-a', 'request-from-hotel-b'),
     ).rejects.toBeInstanceOf(NotFoundException);
 
     expect(prisma.guestRequest.findFirst).toHaveBeenCalledWith(
@@ -125,7 +126,7 @@ describe('Tenant isolation boundaries', () => {
     prisma.guest.findFirst.mockResolvedValue(null);
 
     await expect(
-      new ReservationsService(prisma).createForTenant('hotel-a', {
+      new ReservationsService(prisma, new RoomReadinessService(prisma)).createForTenant('hotel-a', {
         guestId: 'guest-from-hotel-b',
         propertyId: 'property-a',
         roomTypeId: 'room-type-a',
@@ -157,3 +158,4 @@ describe('Tenant isolation boundaries', () => {
     });
   });
 });
+

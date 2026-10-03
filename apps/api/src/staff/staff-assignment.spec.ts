@@ -1,3 +1,4 @@
+import { RoomReadinessService } from '../room-readiness/room-readiness.service';
 import { BadRequestException, ExecutionContext, ForbiddenException, NotFoundException, ValidationPipe } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { HousekeepingStatus, MaintenanceStatus, MembershipRole, StaffDepartment, StaffOperationalStatus, TenantType } from '@prisma/client';
@@ -98,14 +99,14 @@ describe.each([
   { department: StaffDepartment.HOUSEKEEPING, model: 'housekeepingTask', initial: 'PENDING', completed: 'COMPLETED', Service: HousekeepingService },
   { department: StaffDepartment.MAINTENANCE, model: 'maintenanceTicket', initial: 'OPEN', completed: 'RESOLVED', Service: MaintenanceService },
 ])('$department assignment', ({ department, model, initial, completed, Service }) => {
-  function setup() { const f = fixture(department); return { ...f, work: (f.db as any)[model], service: new Service(f.db as any, f.staff) }; }
+  function setup() { const f = fixture(department); return { ...f, work: (f.db as any)[model], service: new Service(f.db as any, f.staff, new RoomReadinessService(f.db as any)) }; }
   it('assigns eligible staff and moves pending work to ASSIGNED atomically', async () => {
     const { service, db, work } = setup();
     await service.updateForTenant('hotel-a', 'work-a', { assignedStaffId: 'staff-a' });
     expect(work.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'work-a', tenantId: 'hotel-a' }, data: expect.objectContaining({ assignedStaffId: 'staff-a', assignedTo: null, status: 'ASSIGNED' }) }));
     expect(db.operationalStaff.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'staff-a', tenantId: 'hotel-a' } }));
     expect(db.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: 'Serializable' });
-    expect(db.room.update).not.toHaveBeenCalled();
+    expect(db.room.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.not.objectContaining({ occupancyStatus: expect.anything() }) }));
   });
   it('rejects foreign work', async () => {
     const { service, work } = setup(); work.findFirst.mockResolvedValue(null);
@@ -143,7 +144,7 @@ describe.each([
     work.findFirst.mockResolvedValue({ ...task, status: 'ASSIGNED', assignedStaffId: 'staff-a' });
     await service.updateForTenant('hotel-a', 'work-a', { status: 'IN_PROGRESS' } as any);
     await service.updateForTenant('hotel-a', 'work-a', { status: completed } as any);
-    expect(db.room.update).toHaveBeenCalledWith({ where: { id: 'room-a', property: { tenantId: 'hotel-a' } }, data: { readinessStatus: 'READY' } });
+    expect(db.room.update).toHaveBeenCalledWith({ where: { id: 'room-a', property: { tenantId: 'hotel-a' } }, data: { readinessStatus: 'READY' }, include: { property: true, roomType: true } });
   });
   it('validates creation assignment and rejects free-text identity bypass', async () => {
     const { service, db, work } = setup();
