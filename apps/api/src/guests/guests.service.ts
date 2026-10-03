@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { ReservationStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateGuestDto } from './guests.dto';
 
@@ -7,9 +8,38 @@ export class GuestsService {
   constructor(private readonly prisma: PrismaService) {}
 
   listForTenant(tenantId: string) {
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
     return this.prisma.guest.findMany({
       where: { tenantId },
-      include: { property: true, room: { include: { roomType: true } } },
+      include: {
+        property: true,
+        room: { include: { roomType: true } },
+        // An additive, read-only operational projection. No billing, notes, or lifecycle mutations.
+        reservations: {
+          where: {
+            tenantId,
+            OR: [
+              { status: ReservationStatus.CHECKED_IN },
+              {
+                status: { in: [ReservationStatus.PENDING, ReservationStatus.CONFIRMED] },
+                checkOut: { gte: today },
+              },
+            ],
+          },
+          select: {
+            id: true,
+            status: true,
+            confirmationCode: true,
+            checkIn: true,
+            checkOut: true,
+            property: { select: { id: true, name: true } },
+            room: { select: { id: true, number: true } },
+            roomType: { select: { id: true, name: true } },
+          },
+          orderBy: [{ checkIn: 'asc' }, { id: 'asc' }],
+        },
+      },
       orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
     });
   }

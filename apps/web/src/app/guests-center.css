@@ -1,0 +1,30 @@
+.guests-center { min-width: 0; }
+.guest-toolbar { display: flex; align-items: end; gap: 16px; flex-wrap: wrap; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.guest-toolbar label { display: block; color: var(--muted); font-size: 10px; margin-bottom: 7px; }
+.guest-search { flex: 1 1 260px; }
+.guest-toolbar input, .guest-toolbar select { width: 100%; border: 1px solid var(--line-bright); border-radius: 8px; background: #0d1211; color: var(--text); padding: 10px 12px; font: inherit; font-size: 12px; }
+.guest-toolbar input:focus-visible, .guest-toolbar select:focus-visible, .guests-center button:focus-visible { outline: 2px solid var(--signal); outline-offset: 3px; }
+.guest-status-note { color: var(--muted); font-size: 10px; line-height: 1.6; margin: 10px 0; }
+.guest-card { grid-template-columns: minmax(0, 1fr); }
+.guest-card-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.guest-card-heading h3 { margin: 0; font-size: 16px; overflow-wrap: anywhere; }
+.guest-record-status { border-radius: 4px; background: #151b18; color: #8d9c94; padding: 4px 6px; font-size: 9px; letter-spacing: .08em; }
+.guest-record-status.active { color: var(--signal); background: #141e10; }
+.guest-stay-status { color: #a7b8af; font-size: 10px; }
+.guest-context { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px 20px; margin: 16px 0 0; }
+.guest-context dt { color: var(--muted); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
+.guest-context dd { color: var(--text); font-size: 12px; line-height: 1.5; margin: 5px 0 0; overflow-wrap: anywhere; }
+.guest-reservations { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
+.guest-reservations h4 { margin: 0 0 10px; color: var(--muted); text-transform: uppercase; font-size: 9px; letter-spacing: .1em; font-weight: 500; }
+.guest-reservation { padding: 10px 0; }
+.guest-reservation + .guest-reservation { border-top: 1px solid var(--line); }
+.guest-reservation-heading { display: flex; flex-wrap: wrap; gap: 12px; font-size: 11px; color: #b8c8be; }
+.guest-reservation-heading strong { color: var(--signal); font-weight: 500; overflow-wrap: anywhere; }
+.guest-reservation-heading span { font-size: 9px; letter-spacing: .08em; }
+.guest-reservation .guest-context { margin-top: 10px; }
+.guests-center .request-empty { padding: 20px; }
+@media (max-width: 1050px) { .guest-context { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) {
+  .guest-context { grid-template-columns: minmax(0, 1fr); }
+  .guest-search, .guest-filter { flex: 1 1 100%; }
+}
