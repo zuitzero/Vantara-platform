@@ -1,7 +1,12 @@
 import { IsEnum } from 'class-validator';
-import { RoomStatus } from '@prisma/client';
+import { RoomOccupancyStatus, RoomReadinessStatus } from '@prisma/client';
 
-export class UpdateRoomStatusDto {
-  @IsEnum(RoomStatus)
-  status!: RoomStatus;
+export class UpdateRoomOccupancyDto {
+  @IsEnum(RoomOccupancyStatus)
+  occupancyStatus!: RoomOccupancyStatus;
+}
+
+export class UpdateRoomReadinessDto {
+  @IsEnum(RoomReadinessStatus)
+  readinessStatus!: RoomReadinessStatus;
 }
