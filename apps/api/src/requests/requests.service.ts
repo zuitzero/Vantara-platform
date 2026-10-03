@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { GuestRequestPriority, GuestRequestStatus } from '@prisma/client';
+import { GuestRequestCategory, GuestRequestPriority, GuestRequestStatus, OperationsPriority, RoomStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CreateGuestRequestDto, UpdateGuestRequestDto } from './requests.dto';
@@ -53,6 +53,8 @@ export class RequestsService {
       include: { guest: true, property: true, room: { include: { roomType: true } } },
     });
 
+    await this.createOperationalWork(request);
+
     const events = guestRequestCreatedEvent({
       tenantId,
       guestId,
@@ -96,5 +98,57 @@ export class RequestsService {
     }
 
     return request;
+  }
+
+  private async createOperationalWork(request: {
+    id: string;
+    tenantId: string;
+    propertyId: string;
+    roomId: string | null;
+    title: string;
+    message: string;
+    category: GuestRequestCategory;
+    priority: GuestRequestPriority;
+  }) {
+    if (!request.roomId) return;
+    const priority = request.priority as unknown as OperationsPriority;
+
+    if (request.category === GuestRequestCategory.HOUSEKEEPING) {
+      await this.prisma.$transaction([
+        this.prisma.housekeepingTask.upsert({
+          where: { sourceGuestRequestId: request.id },
+          update: {},
+          create: {
+            tenantId: request.tenantId,
+            propertyId: request.propertyId,
+            roomId: request.roomId,
+            sourceGuestRequestId: request.id,
+            title: request.title,
+            notes: request.message,
+            priority,
+          },
+        }),
+        this.prisma.room.update({ where: { id: request.roomId }, data: { status: RoomStatus.CLEANING } }),
+      ]);
+    }
+
+    if (request.category === GuestRequestCategory.MAINTENANCE) {
+      await this.prisma.$transaction([
+        this.prisma.maintenanceTicket.upsert({
+          where: { sourceGuestRequestId: request.id },
+          update: {},
+          create: {
+            tenantId: request.tenantId,
+            propertyId: request.propertyId,
+            roomId: request.roomId,
+            sourceGuestRequestId: request.id,
+            title: request.title,
+            description: request.message,
+            priority,
+          },
+        }),
+        this.prisma.room.update({ where: { id: request.roomId }, data: { status: RoomStatus.MAINTENANCE } }),
+      ]);
+    }
   }
 }

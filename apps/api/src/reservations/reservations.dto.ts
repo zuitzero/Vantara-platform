@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
-import { IsDate, IsEmail, IsInt, IsOptional, IsString, Min, MinLength } from 'class-validator';
+import { IsDate, IsEnum, IsInt, IsOptional, IsString, Min, MinLength } from 'class-validator';
+import { ReservationStatus } from '@prisma/client';
 
 export class CreateReservationDto {
   @IsString()
@@ -47,4 +48,9 @@ export class CreateReservationDto {
   @IsOptional()
   @IsString()
   notes?: string;
+}
+
+export class UpdateReservationStatusDto {
+  @IsEnum(ReservationStatus)
+  status!: ReservationStatus;
 }
