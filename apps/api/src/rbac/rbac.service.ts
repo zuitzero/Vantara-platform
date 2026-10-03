@@ -3,6 +3,17 @@ import { MembershipRole, TenantType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { hasPermission, Permission } from './rbac.types';
 
+const PLATFORM_ROLES: MembershipRole[] = [
+  MembershipRole.ZUITZERO_ADMIN,
+  MembershipRole.OWNER,
+];
+
+const HOTEL_ROLES: MembershipRole[] = [
+  MembershipRole.GUEST,
+  MembershipRole.HOTEL_STAFF,
+  MembershipRole.HOTEL_ADMIN,
+];
+
 @Injectable()
 export class RbacService {
   constructor(private readonly prisma: PrismaService) {}
@@ -30,14 +41,14 @@ export class RbacService {
     }
 
     if (
-      [MembershipRole.ZUITZERO_ADMIN, MembershipRole.OWNER].includes(membership.role) &&
+      PLATFORM_ROLES.includes(membership.role) &&
       membership.tenant.type !== TenantType.PLATFORM
     ) {
       return null;
     }
 
     if (
-      [MembershipRole.GUEST, MembershipRole.HOTEL_STAFF, MembershipRole.HOTEL_ADMIN].includes(membership.role) &&
+      HOTEL_ROLES.includes(membership.role) &&
       membership.tenant.type !== TenantType.HOTEL
     ) {
       return null;
