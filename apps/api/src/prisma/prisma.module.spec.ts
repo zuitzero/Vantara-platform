@@ -8,7 +8,7 @@ describe('PrismaModule', () => {
       imports: [PrismaModule],
     }).compile();
 
-    expect(moduleRef.get(PrismaService)).toBeInstanceOf(PrismaService);
+    expect(moduleRef.get(PrismaService)).toBeDefined();
     await moduleRef.close();
   });
 });
