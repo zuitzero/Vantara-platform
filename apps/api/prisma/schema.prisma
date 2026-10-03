@@ -344,6 +344,8 @@ model HousekeepingTask {
   tenantId String
   propertyId String
   roomId String
+  sourceGuestRequestId String? @unique
+  sourceReservationId String? @unique
   title String
   notes String?
   priority OperationsPriority @default(NORMAL)
@@ -368,6 +370,7 @@ model MaintenanceTicket {
   tenantId String
   propertyId String
   roomId String
+  sourceGuestRequestId String? @unique
   title String
   description String
   priority OperationsPriority @default(NORMAL)
