@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { MaintenanceStatus, RoomStatus } from '@prisma/client';
+import { MaintenanceStatus, RoomReadinessStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateMaintenanceTicketDto, UpdateMaintenanceTicketDto } from './maintenance.dto';
 
@@ -32,8 +32,11 @@ export class MaintenanceService {
       include: { room: { include: { roomType: true } }, property: true },
     });
 
-    if (room.status !== RoomStatus.MAINTENANCE) {
-      await this.prisma.room.update({ where: { id: room.id }, data: { status: RoomStatus.MAINTENANCE } });
+    if (room.readinessStatus !== RoomReadinessStatus.MAINTENANCE) {
+      await this.prisma.room.update({
+        where: { id: room.id },
+        data: { readinessStatus: RoomReadinessStatus.MAINTENANCE },
+      });
     }
     return ticket;
   }
@@ -57,7 +60,10 @@ export class MaintenanceService {
     });
 
     if (nextStatus === MaintenanceStatus.RESOLVED) {
-      await this.prisma.room.update({ where: { id: current.roomId }, data: { status: RoomStatus.AVAILABLE } });
+      await this.prisma.room.update({
+        where: { id: current.roomId },
+        data: { readinessStatus: RoomReadinessStatus.READY },
+      });
     }
     return ticket;
   }

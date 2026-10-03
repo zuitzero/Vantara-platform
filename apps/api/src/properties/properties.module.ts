@@ -4,12 +4,10 @@ import { PropertiesController } from './properties.controller';
 import { PropertiesService } from './properties.service';
 import { RoomTypesController } from './room-types.controller';
 import { RoomTypesService } from './room-types.service';
-import { RoomsController } from './rooms.controller';
-import { RoomsService } from './rooms.service';
 
 @Module({
   imports: [AuthModule],
-  controllers: [PropertiesController, RoomTypesController, RoomsController],
-  providers: [PropertiesService, RoomTypesService, RoomsService],
+  controllers: [PropertiesController, RoomTypesController],
+  providers: [PropertiesService, RoomTypesService],
 })
 export class PropertiesModule {}

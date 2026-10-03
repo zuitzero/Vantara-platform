@@ -1,9 +1,9 @@
-import { GuestRequestCategory, GuestRequestPriority, ReservationStatus, RoomStatus } from '@prisma/client';
+import { GuestRequestCategory, GuestRequestPriority, ReservationStatus, RoomOccupancyStatus, RoomReadinessStatus } from '@prisma/client';
 import { ReservationsService } from '../reservations/reservations.service';
 import { RequestsService } from '../requests/requests.service';
 
 describe('Operational automation', () => {
-  it('creates housekeeping work and marks the room cleaning after check-out', async () => {
+  it('creates housekeeping work and marks the room vacant + cleaning after check-out', async () => {
     const current = {
       id: 'res-1', tenantId: 'tenant-1', propertyId: 'property-1', guestId: 'guest-1', roomTypeId: 'rt-1',
       roomId: 'room-1', confirmationCode: 'VNT-ABC', status: ReservationStatus.CHECKED_IN,
@@ -28,7 +28,13 @@ describe('Operational automation', () => {
     const service = new ReservationsService(prisma);
     await service.updateStatusForTenant('tenant-1', 'res-1', ReservationStatus.CHECKED_OUT);
 
-    expect(tx.room.update).toHaveBeenCalledWith({ where: { id: 'room-1' }, data: { status: RoomStatus.CLEANING } });
+    expect(tx.room.update).toHaveBeenCalledWith({
+      where: { id: 'room-1' },
+      data: {
+        occupancyStatus: RoomOccupancyStatus.VACANT,
+        readinessStatus: RoomReadinessStatus.CLEANING,
+      },
+    });
     expect(tx.housekeepingTask.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ tenantId: 'tenant-1', propertyId: 'property-1', roomId: 'room-1' }),
     }));
