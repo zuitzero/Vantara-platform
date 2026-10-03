@@ -6,6 +6,7 @@ import { RequestsCenter } from './requests-center';
 import { RoomsCenter } from './rooms-center';
 import { ReservationsCenter } from './reservations-center';
 import { GuestsCenter } from './guests-center';
+import { StaffCenter } from './staff-center';
 import { OperationsCenter } from './operations-center';
 import { useRealtimeNotifications, RealtimeNotification } from './use-realtime-notifications';
 import './command-center.css';
@@ -34,7 +35,7 @@ const nav: NavItem[] = [
   { label: 'Requests', glyph: '↗', live: true },
   { label: 'Housekeeping', glyph: '⌁', live: true },
   { label: 'Maintenance', glyph: '◇', live: true },
-  { label: 'Staff', glyph: '◫', adminOnly: true },
+  { label: 'Staff', glyph: '◫', adminOnly: true, live: true },
   { label: 'CRM', glyph: '◌', adminOnly: true },
   { label: 'Finance', glyph: '$', adminOnly: true },
   { label: 'Settings', glyph: '⚙', adminOnly: true },
@@ -122,8 +123,9 @@ export default function Home() {
   if (active === 'Reservations') content = <ReservationsCenter base={base} canManage={isHotelAdmin} initialGuestId={reservationGuestId} onGuestConsumed={() => setReservationGuestId(null)} />;
   if (active === 'Requests') content = <RequestsCenter />;
   if (active === 'Rooms') content = <RoomsCenter base={base} canManage={isHotelAdmin} />;
-  if (active === 'Housekeeping') content = <OperationsCenter base={base} mode="housekeeping" />;
-  if (active === 'Maintenance') content = <OperationsCenter base={base} mode="maintenance" />;
+  if (active === 'Staff' && isHotelAdmin) content = <StaffCenter base={base} />;
+  if (active === 'Housekeeping') content = <OperationsCenter key="housekeeping" base={base} mode="housekeeping" canManage={isHotelRole} />;
+  if (active === 'Maintenance') content = <OperationsCenter key="maintenance" base={base} mode="maintenance" canManage={isHotelRole} />;
 
   return <main className="workspace">
     <aside className="sidebar">

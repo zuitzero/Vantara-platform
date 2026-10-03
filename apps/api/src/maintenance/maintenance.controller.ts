@@ -17,6 +17,12 @@ export class MaintenanceController {
     return this.maintenance.listForTenant(request.tenantContext!.tenantId);
   }
 
+  @Get('assignees')
+  @Permissions('maintenance.manage')
+  assignees(@Req() request: AuthenticatedRequest & TenantScopedRequest) {
+    return this.maintenance.assigneesForTenant(request.tenantContext!.tenantId);
+  }
+
   @Post()
   @Permissions('maintenance.manage')
   create(@Req() request: AuthenticatedRequest & TenantScopedRequest, @Body() input: CreateMaintenanceTicketDto) {

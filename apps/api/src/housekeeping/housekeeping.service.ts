@@ -1,73 +1,96 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { HousekeepingStatus, RoomReadinessStatus } from '@prisma/client';
+import { HousekeepingStatus, StaffDepartment, RoomReadinessStatus } from '@prisma/client';
+import { StaffService, staffIdentity } from '../staff/staff.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateHousekeepingTaskDto, UpdateHousekeepingTaskDto } from './housekeeping.dto';
 
 @Injectable()
 export class HousekeepingService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly staff: StaffService) { }
+
+  assigneesForTenant(tenantId: string) { return this.staff.assigneesForTenant(tenantId, StaffDepartment.HOUSEKEEPING); }
 
   listForTenant(tenantId: string) {
     return this.prisma.housekeepingTask.findMany({
       where: { tenantId },
-      include: { room: { include: { roomType: true } }, property: true },
+      include: { room: { include: { roomType: true } }, property: true, assignedStaff: { include: { membership: staffIdentity } } },
       orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
     });
   }
 
   async createForTenant(tenantId: string, input: CreateHousekeepingTaskDto) {
-    const room = await this.prisma.room.findFirst({
-      where: { id: input.roomId, property: { tenantId } },
-    });
-    if (!room) throw new BadRequestException('Room does not belong to the active hotel.');
-
-    const task = await this.prisma.housekeepingTask.create({
-      data: {
-        tenantId,
-        propertyId: room.propertyId,
-        roomId: room.id,
-        title: input.title.trim(),
-        notes: input.notes?.trim(),
-        priority: input.priority,
-        assignedTo: input.assignedTo?.trim(),
-        dueAt: input.dueAt ? new Date(input.dueAt) : undefined,
-      },
-      include: { room: { include: { roomType: true } }, property: true },
-    });
-
-    if (room.readinessStatus !== RoomReadinessStatus.CLEANING) {
-      await this.prisma.room.update({
-        where: { id: room.id },
-        data: { readinessStatus: RoomReadinessStatus.CLEANING },
+    return this.staff.transaction(async tx => {
+      await this.staff.assertHotel(tenantId, tx);
+      const room = await tx.room.findFirst({ where: { id: input.roomId, property: { tenantId } } });
+      if (!room) throw new BadRequestException('Room does not belong to the active hotel.');
+      if (input.assignedStaffId) await this.staff.validateAssignee(tx, tenantId, input.assignedStaffId, room.propertyId, StaffDepartment.HOUSEKEEPING);
+      const task = await tx.housekeepingTask.create({
+        data: {
+          tenantId,
+          propertyId: room.propertyId,
+          roomId: room.id,
+          title: input.title.trim(),
+          notes: input.notes?.trim(),
+          priority: input.priority,
+          assignedStaffId: input.assignedStaffId,
+          status: input.assignedStaffId ? HousekeepingStatus.ASSIGNED : HousekeepingStatus.PENDING,
+          dueAt: input.dueAt ? new Date(input.dueAt) : undefined,
+        },
+        include: { room: { include: { roomType: true } }, property: true, assignedStaff: { include: { membership: staffIdentity } } },
       });
-    }
-    return task;
+
+      if (room.readinessStatus !== RoomReadinessStatus.CLEANING) {
+        await tx.room.update({
+          where: { id: room.id, property: { tenantId } },
+          data: { readinessStatus: RoomReadinessStatus.CLEANING },
+        });
+      }
+      return task;
+    });
   }
 
   async updateForTenant(tenantId: string, taskId: string, input: UpdateHousekeepingTaskDto) {
-    const current = await this.prisma.housekeepingTask.findFirst({ where: { id: taskId, tenantId } });
-    if (!current) throw new NotFoundException('Housekeeping task not found.');
+    return this.staff.transaction(async tx => {
+      await this.staff.assertHotel(tenantId, tx);
+      const current = await tx.housekeepingTask.findFirst({ where: { id: taskId, tenantId } });
+      if (!current) throw new NotFoundException('Housekeeping task not found.');
 
-    const nextStatus = input.status ?? current.status;
-    const task = await this.prisma.housekeepingTask.update({
-      where: { id: current.id },
-      data: {
-        status: nextStatus,
-        priority: input.priority,
-        assignedTo: input.assignedTo?.trim(),
-        notes: input.notes?.trim(),
-        startedAt: nextStatus === HousekeepingStatus.IN_PROGRESS && !current.startedAt ? new Date() : current.startedAt,
-        completedAt: nextStatus === HousekeepingStatus.COMPLETED ? new Date() : current.completedAt,
-      },
-      include: { room: { include: { roomType: true } }, property: true },
-    });
-
-    if (nextStatus === HousekeepingStatus.COMPLETED) {
-      await this.prisma.room.update({
-        where: { id: current.roomId },
-        data: { readinessStatus: RoomReadinessStatus.READY },
+      const terminal = (current.status === HousekeepingStatus.COMPLETED || current.status === HousekeepingStatus.CANCELLED);
+      if (terminal && (input.assignedStaffId !== undefined || (input.status !== undefined && input.status !== current.status))) {
+        throw new BadRequestException('Closed work cannot be assigned or reopened.');
+      }
+      const assignedStaffId = input.assignedStaffId !== undefined ? input.assignedStaffId : current.assignedStaffId;
+      let nextStatus = input.status ?? current.status;
+      if (input.assignedStaffId !== undefined) {
+        if (assignedStaffId && current.status === HousekeepingStatus.PENDING) nextStatus = input.status ?? HousekeepingStatus.ASSIGNED;
+        if (!assignedStaffId && current.status === HousekeepingStatus.ASSIGNED) nextStatus = input.status ?? HousekeepingStatus.PENDING;
+      }
+      if (nextStatus === HousekeepingStatus.ASSIGNED && !assignedStaffId) throw new BadRequestException('ASSIGNED work requires an operational staff profile.');
+      if (assignedStaffId && (input.assignedStaffId !== undefined || nextStatus === HousekeepingStatus.ASSIGNED || nextStatus === HousekeepingStatus.IN_PROGRESS)) {
+        await this.staff.validateAssignee(tx, tenantId, assignedStaffId, current.propertyId, StaffDepartment.HOUSEKEEPING);
+      }
+      const task = await tx.housekeepingTask.update({
+        where: { id: current.id, tenantId },
+        data: {
+          status: nextStatus,
+          priority: input.priority,
+          assignedStaffId: input.assignedStaffId,
+          assignedTo: input.assignedStaffId !== undefined ? null : undefined,
+          notes: input.notes?.trim(),
+          startedAt: nextStatus === HousekeepingStatus.IN_PROGRESS && !current.startedAt ? new Date() : current.startedAt,
+          completedAt: nextStatus === HousekeepingStatus.COMPLETED && current.status !== nextStatus ? new Date() : current.completedAt,
+        },
+        include: { room: { include: { roomType: true } }, property: true, assignedStaff: { include: { membership: staffIdentity } } },
       });
-    }
-    return task;
+
+      if (nextStatus === HousekeepingStatus.COMPLETED && current.status !== nextStatus) {
+        await tx.room.update({
+          where: { id: current.roomId, property: { tenantId } },
+          data: { readinessStatus: RoomReadinessStatus.READY },
+        });
+      }
+      return task;
+    });
   }
 }
+

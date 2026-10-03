@@ -1,3 +1,4 @@
+import { StaffModule } from './staff/staff.module';
 import { Module } from '@nestjs/common';
 import { HealthController } from './health.controller';
 import { AuthModule } from './auth/auth.module';
@@ -15,7 +16,8 @@ import { HousekeepingModule } from './housekeeping/housekeeping.module';
 import { MaintenanceModule } from './maintenance/maintenance.module';
 
 @Module({
-  imports: [PrismaModule, RbacModule, AuthModule, OnboardingModule, PropertiesModule, RoomsModule, HousekeepingModule, MaintenanceModule, GuestsModule, ReservationsModule, RequestsModule, NotificationsModule, OperationsModule],
+  imports: [StaffModule, PrismaModule, RbacModule, AuthModule, OnboardingModule, PropertiesModule, RoomsModule, HousekeepingModule, MaintenanceModule, GuestsModule, ReservationsModule, RequestsModule, NotificationsModule, OperationsModule],
   controllers: [HealthController],
 })
 export class AppModule {}
+

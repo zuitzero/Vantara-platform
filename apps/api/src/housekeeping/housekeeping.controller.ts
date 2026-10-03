@@ -17,6 +17,12 @@ export class HousekeepingController {
     return this.housekeeping.listForTenant(request.tenantContext!.tenantId);
   }
 
+  @Get('assignees')
+  @Permissions('housekeeping.manage')
+  assignees(@Req() request: AuthenticatedRequest & TenantScopedRequest) {
+    return this.housekeeping.assigneesForTenant(request.tenantContext!.tenantId);
+  }
+
   @Post()
   @Permissions('housekeeping.manage')
   create(@Req() request: AuthenticatedRequest & TenantScopedRequest, @Body() input: CreateHousekeepingTaskDto) {
