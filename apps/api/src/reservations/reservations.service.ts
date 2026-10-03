@@ -1,5 +1,5 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { HousekeepingStatus, ReservationStatus, RoomOccupancyStatus, RoomReadinessStatus } from '@prisma/client';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { HousekeepingStatus, Prisma, ReservationStatus, RoomOccupancyStatus, RoomReadinessStatus } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateReservationDto } from './reservations.dto';
@@ -50,43 +50,38 @@ export class ReservationsService {
     });
     if (!roomType) throw new BadRequestException('Room type does not belong to the selected property.');
 
-    if (input.roomId) {
-      const room = await this.prisma.room.findFirst({
-        where: { id: input.roomId, propertyId: input.propertyId, roomTypeId: input.roomTypeId },
-      });
-      if (!room) throw new BadRequestException('Room does not match the selected property and room type.');
-
-      const overlap = await this.prisma.reservation.findFirst({
-        where: {
-          tenantId,
-          roomId: input.roomId,
-          status: { in: [ReservationStatus.PENDING, ReservationStatus.CONFIRMED, ReservationStatus.CHECKED_IN] },
-          checkIn: { lt: input.checkOut },
-          checkOut: { gt: input.checkIn },
+    return this.serialized(async (tx) => {
+      if (input.roomId) {
+        await this.validateRoom(tx, tenantId, input.roomId, input.propertyId, input.roomTypeId);
+        await this.assertNoOverlap(tx, tenantId, input.roomId, input.checkIn, input.checkOut);
+      }
+      return tx.reservation.create({
+        data: {
+          tenantId, propertyId: input.propertyId, guestId: input.guestId,
+          roomTypeId: input.roomTypeId, roomId: input.roomId,
+          confirmationCode: this.createConfirmationCode(),
+          checkIn: input.checkIn, checkOut: input.checkOut,
+          adults: input.adults ?? 1, children: input.children ?? 0,
+          totalAmount: input.totalAmount, currency: input.currency?.toUpperCase() ?? 'MXN',
+          notes: input.notes?.trim(),
         },
+        include: { guest: true, property: true, roomType: true, room: true },
       });
-      if (overlap) throw new BadRequestException('Room is already reserved for part of this stay.');
-    }
-
-    const confirmationCode = this.createConfirmationCode();
-    return this.prisma.reservation.create({
-      data: {
-        tenantId,
-        propertyId: input.propertyId,
-        guestId: input.guestId,
-        roomTypeId: input.roomTypeId,
-        roomId: input.roomId,
-        confirmationCode,
-        checkIn: input.checkIn,
-        checkOut: input.checkOut,
-        adults: input.adults ?? 1,
-        children: input.children ?? 0,
-        totalAmount: input.totalAmount,
-        currency: input.currency?.toUpperCase() ?? 'MXN',
-        notes: input.notes?.trim(),
-      },
-      include: { guest: true, property: true, roomType: true, room: true },
     });
+  }
+
+  async assignRoomForTenant(tenantId: string, reservationId: string, roomId: string) {
+    await this.serialized(async (tx) => {
+      const reservation = await tx.reservation.findFirst({ where: { id: reservationId, tenantId } });
+      if (!reservation) throw new NotFoundException('Reservation not found.');
+      if (reservation.status !== ReservationStatus.PENDING && reservation.status !== ReservationStatus.CONFIRMED) {
+        throw new BadRequestException('Rooms can only be assigned before check-in on pending or confirmed reservations.');
+      }
+      await this.validateRoom(tx, tenantId, roomId, reservation.propertyId, reservation.roomTypeId);
+      await this.assertNoOverlap(tx, tenantId, roomId, reservation.checkIn, reservation.checkOut, reservation.id);
+      await tx.reservation.update({ where: { id: reservation.id, tenantId }, data: { roomId } });
+    });
+    return this.getForTenant(tenantId, reservationId);
   }
 
   async updateStatusForTenant(tenantId: string, reservationId: string, nextStatus: ReservationStatus) {
@@ -104,29 +99,48 @@ export class ReservationsService {
       throw new BadRequestException('A room must be assigned before check-in or check-out.');
     }
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.reservation.update({ where: { id: current.id }, data: { status: nextStatus } });
+    await this.serialized(async (tx) => {
+      const fresh = await tx.reservation.findFirst({ where: { id: reservationId, tenantId }, include: { room: true } });
+      if (!fresh) throw new NotFoundException('Reservation not found.');
+      if (fresh.status === nextStatus) return;
+      if (!ALLOWED_TRANSITIONS[fresh.status].includes(nextStatus)) {
+        throw new BadRequestException(`Cannot move reservation from ${fresh.status} to ${nextStatus}.`);
+      }
+      // All operational writes use the reservation read inside this transaction.
+      const current = fresh;
+      if (nextStatus === ReservationStatus.CHECKED_IN || nextStatus === ReservationStatus.CHECKED_OUT) {
+        if (!current.roomId) throw new BadRequestException('A room must be assigned before check-in or check-out.');
+        await this.validateRoom(tx, tenantId, current.roomId, current.propertyId, current.roomTypeId);
+        const guest = await tx.guest.findFirst({ where: { id: current.guestId, tenantId } });
+        if (!guest) throw new BadRequestException('Guest does not belong to the active hotel.');
+      }
+      await tx.reservation.update({ where: { id: current.id, tenantId }, data: { status: nextStatus } });
 
       if (nextStatus === ReservationStatus.CHECKED_IN && current.roomId) {
-        await tx.room.update({
-          where: { id: current.roomId },
+        await this.assertNoOverlap(tx, tenantId, current.roomId, current.checkIn, current.checkOut, current.id);
+        const claimed = await tx.room.updateMany({
+          where: {
+            id: current.roomId, property: { tenantId },
+            occupancyStatus: RoomOccupancyStatus.VACANT, readinessStatus: RoomReadinessStatus.READY,
+          },
           data: { occupancyStatus: RoomOccupancyStatus.OCCUPIED },
         });
+        if (claimed.count !== 1) throw new BadRequestException('Check-in requires a VACANT and READY room. Refresh room availability.');
         await tx.guest.update({
-          where: { id: current.guestId },
+          where: { id: current.guestId, tenantId },
           data: { roomId: current.roomId, propertyId: current.propertyId },
         });
       }
 
       if (nextStatus === ReservationStatus.CHECKED_OUT && current.roomId) {
         await tx.room.update({
-          where: { id: current.roomId },
+          where: { id: current.roomId, property: { tenantId } },
           data: {
             occupancyStatus: RoomOccupancyStatus.VACANT,
             readinessStatus: RoomReadinessStatus.CLEANING,
           },
         });
-        await tx.guest.update({ where: { id: current.guestId }, data: { roomId: null } });
+        await tx.guest.update({ where: { id: current.guestId, tenantId }, data: { roomId: null } });
 
         const existingTask = await tx.housekeepingTask.findFirst({
           where: {
@@ -153,7 +167,40 @@ export class ReservationsService {
     return this.getForTenant(tenantId, reservationId);
   }
 
+  private async validateRoom(tx: Prisma.TransactionClient, tenantId: string, roomId: string, propertyId: string, roomTypeId: string) {
+    const room = await tx.room.findFirst({ where: { id: roomId, property: { tenantId } } });
+    if (!room) throw new BadRequestException('Room does not belong to the active hotel or no longer exists.');
+    if (room.propertyId !== propertyId || room.roomTypeId !== roomTypeId) {
+      throw new BadRequestException('Room must match the reservation property and room type.');
+    }
+    return room;
+  }
+
+  private async assertNoOverlap(tx: Prisma.TransactionClient, tenantId: string, roomId: string, checkIn: Date, checkOut: Date, reservationId?: string) {
+    const conflict = await tx.reservation.findFirst({
+      where: {
+        tenantId, roomId, ...(reservationId ? { id: { not: reservationId } } : {}),
+        status: { in: [ReservationStatus.PENDING, ReservationStatus.CONFIRMED, ReservationStatus.CHECKED_IN] },
+        checkIn: { lt: checkOut }, checkOut: { gt: checkIn },
+      },
+    });
+    if (conflict) throw new BadRequestException('Room is already reserved for part of this stay.');
+  }
+
+  private async serialized<T>(operation: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await this.prisma.$transaction(operation, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      } catch (error) {
+        if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2034') throw error;
+        if (attempt === 2) throw new ConflictException('Reservation or room changed concurrently. Refresh and retry.');
+      }
+    }
+    throw new ConflictException('Refresh and retry.');
+  }
+
   private createConfirmationCode() {
     return `VNT-${randomBytes(4).toString('hex').toUpperCase()}`;
   }
 }
+

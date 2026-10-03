@@ -45,6 +45,9 @@ export class GuestsService {
   }
 
   async createForTenant(tenantId: string, input: CreateGuestDto) {
+    if (!input.firstName.trim() || !input.lastName.trim()) {
+      throw new BadRequestException('First and last name are required.');
+    }
     if (input.roomId) {
       const room = await this.prisma.room.findFirst({
         where: { id: input.roomId, property: { tenantId } },

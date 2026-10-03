@@ -54,3 +54,9 @@ export class UpdateReservationStatusDto {
   @IsEnum(ReservationStatus)
   status!: ReservationStatus;
 }
+
+export class AssignReservationRoomDto {
+  @IsString()
+  @MinLength(2)
+  roomId!: string;
+}
