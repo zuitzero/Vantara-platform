@@ -8,13 +8,19 @@ import { AuthenticatedWorkspace, LoginDto } from './auth.dto';
 
 const scrypt = promisify(nodeScrypt);
 
+const HOTEL_ROLES: MembershipRole[] = [
+  MembershipRole.GUEST,
+  MembershipRole.HOTEL_STAFF,
+  MembershipRole.HOTEL_ADMIN,
+];
+
 @Injectable()
 export class AuthService {
   constructor(private readonly prisma: PrismaService) {}
 
   async login(input: LoginDto): Promise<{ token: string; expiresAt: Date }> {
     const email = input.email.trim().toLowerCase();
-    const user = await this.prisma.user.findUnique({
+    const user = await this.prisma.user.findFirst({
       where: { email },
       include: {
         memberships: {
@@ -125,9 +131,7 @@ export class AuthService {
     return memberships.find(
       (membership) =>
         membership.tenant.type === TenantType.HOTEL &&
-        [MembershipRole.GUEST, MembershipRole.HOTEL_STAFF, MembershipRole.HOTEL_ADMIN].includes(
-          membership.role,
-        ),
+        HOTEL_ROLES.includes(membership.role),
     );
   }
 
