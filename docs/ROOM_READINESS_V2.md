@@ -2,9 +2,9 @@
 
 The server derives cached readiness in the same Serializable transaction as operational writes. Priority: administrative OUT_OF_SERVICE lock, active blocking maintenance, active blocking housekeeping, READY. Occupancy is never changed by the resolver. Serialization conflicts retry the complete transaction up to three attempts.
 
-`blocksRoom` defaults to true for existing work and staff-created work, preserving previous behavior. New guest housekeeping requests block; new guest maintenance requests explicitly do not block because there is no issue classification. Staff must triage potentially dangerous maintenance and mark it blocking through the existing maintenance.manage endpoint. Priority and free text do not classify hazards automatically.
+`blocksRoom` defaults to true for existing work and staff-created work, preserving previous behavior. New guest-origin housekeeping and maintenance requests explicitly start as non-blocking because they usually represent in-stay service work and there is no hazard/turnover classification yet. Staff may triage operational work and mark it blocking through the existing manage endpoints. Priority and free text do not classify hazards automatically.
 
-Checkout reuses only an active blocking housekeeping task, otherwise creates blocking turnover work. Cancellation and completion stop contributing to readiness. Terminal work cannot reopen, receive assignment changes, or change its blocking flag. Assignment rules and permissions are unchanged.
+Checkout turnover housekeeping is always blocking. Checkout reuses only an active blocking housekeeping task, otherwise creates blocking turnover work. Cancellation and completion stop contributing to readiness. Terminal work cannot reopen, receive assignment changes, or change its blocking flag. Assignment rules and permissions are unchanged.
 
 The existing rooms readiness PATCH now accepts OUT_OF_SERVICE to lock, or READY to release the administrative lock and recalculate. Releasing a lock does not force READY while blocking work remains; CLEANING/MAINTENANCE direct writes are rejected. The Rooms UI labels this administrative lock separately from derived readiness.
 
