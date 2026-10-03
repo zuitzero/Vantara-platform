@@ -1,5 +1,5 @@
 import { RoomReadinessService } from '../room-readiness/room-readiness.service';
-import { GuestRequestCategory, GuestRequestPriority, ReservationStatus, RoomOccupancyStatus, RoomReadinessStatus } from '@prisma/client';
+import { GuestRequestCategory, GuestRequestPriority, ReservationStatus, RoomOccupancyStatus } from '@prisma/client';
 import { ReservationsService } from '../reservations/reservations.service';
 import { RequestsService } from '../requests/requests.service';
 
@@ -38,11 +38,11 @@ describe('Operational automation', () => {
       },
     });
     expect(tx.housekeepingTask.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ tenantId: 'tenant-1', propertyId: 'property-1', roomId: 'room-1' }),
+      data: expect.objectContaining({ tenantId: 'tenant-1', propertyId: 'property-1', roomId: 'room-1', blocksRoom: true }),
     }));
   });
 
-  it('routes a maintenance guest request into the maintenance queue', async () => {
+  it('routes a maintenance guest request into the maintenance queue as non-blocking', async () => {
     const guest = { id: 'guest-1', tenantId: 'tenant-1', propertyId: 'property-1', roomId: 'room-1', property: {}, room: {} };
     const createdRequest = {
       id: 'request-1', tenantId: 'tenant-1', propertyId: 'property-1', guestId: 'guest-1', roomId: 'room-1',
@@ -71,9 +71,42 @@ describe('Operational automation', () => {
     });
 
     expect(tx.maintenanceTicket.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ tenantId: 'tenant-1', propertyId: 'property-1', roomId: 'room-1', title: 'AC not cooling' }),
+      data: expect.objectContaining({ tenantId: 'tenant-1', propertyId: 'property-1', roomId: 'room-1', title: 'AC not cooling', blocksRoom: false }),
     }));
     expect(tx.housekeepingTask.create).not.toHaveBeenCalled();
   });
-});
 
+  it('routes an in-stay housekeeping guest request as non-blocking', async () => {
+    const guest = { id: 'guest-1', tenantId: 'tenant-1', propertyId: 'property-1', roomId: 'room-1', property: {}, room: {} };
+    const createdRequest = {
+      id: 'request-2', tenantId: 'tenant-1', propertyId: 'property-1', guestId: 'guest-1', roomId: 'room-1',
+      title: 'Fresh towels', message: 'Please bring two towels', category: GuestRequestCategory.HOUSEKEEPING,
+      priority: GuestRequestPriority.NORMAL, status: 'CREATED', guest: {}, property: {}, room: {},
+    };
+    const tx = {
+      guest: { findFirst: jest.fn().mockResolvedValue(guest) },
+      guestRequest: { create: jest.fn().mockResolvedValue(createdRequest) },
+      room: { findFirst: jest.fn().mockResolvedValue({ id: 'room-1', outOfServiceLocked: false }), update: jest.fn().mockResolvedValue({}) },
+      housekeepingTask: { count: jest.fn().mockResolvedValue(0), create: jest.fn().mockResolvedValue({ id: 'hk-2' }) },
+      maintenanceTicket: { count: jest.fn().mockResolvedValue(0), create: jest.fn() },
+    };
+    const prisma = {
+      guest: { findFirst: jest.fn().mockResolvedValue(guest) },
+      $transaction: jest.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)),
+    } as any;
+    const notifications = { publish: jest.fn().mockResolvedValue(undefined) } as any;
+
+    const service = new RequestsService(prisma, notifications, new RoomReadinessService(prisma));
+    await service.createForTenant('tenant-1', 'guest-1', {
+      title: 'Fresh towels',
+      message: 'Please bring two towels',
+      category: GuestRequestCategory.HOUSEKEEPING,
+      priority: GuestRequestPriority.NORMAL,
+    });
+
+    expect(tx.housekeepingTask.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ tenantId: 'tenant-1', roomId: 'room-1', blocksRoom: false }),
+    }));
+    expect(tx.maintenanceTicket.create).not.toHaveBeenCalled();
+  });
+});
