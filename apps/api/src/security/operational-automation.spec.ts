@@ -13,6 +13,7 @@ describe('Operational automation', () => {
     const updated = { ...current, status: ReservationStatus.CHECKED_OUT, guest: {}, property: {}, roomType: {} };
 
     const tx = {
+    auditLog: { create: jest.fn() },
       reservation: { findFirst: jest.fn().mockResolvedValue(current), update: jest.fn().mockResolvedValue(updated) },
       room: { findFirst: jest.fn().mockResolvedValue({ id: 'room-1', propertyId: 'property-1', roomTypeId: 'rt-1' }), update: jest.fn().mockResolvedValue({}) },
       guest: { findFirst: jest.fn().mockResolvedValue({ id: 'guest-1', tenantId: 'tenant-1' }), update: jest.fn().mockResolvedValue({}) },
@@ -50,6 +51,7 @@ describe('Operational automation', () => {
       priority: GuestRequestPriority.HIGH, status: 'CREATED', guest: {}, property: {}, room: {},
     };
     const tx = {
+      auditLog: { create: jest.fn() },
       guest: { findFirst: jest.fn().mockResolvedValue(guest) },
       guestRequest: { create: jest.fn().mockResolvedValue(createdRequest) },
       room: { findFirst: jest.fn().mockResolvedValue({ id: 'room-1' }), update: jest.fn() },
@@ -84,6 +86,7 @@ describe('Operational automation', () => {
       priority: GuestRequestPriority.NORMAL, status: 'CREATED', guest: {}, property: {}, room: {},
     };
     const tx = {
+      auditLog: { create: jest.fn() },
       guest: { findFirst: jest.fn().mockResolvedValue(guest) },
       guestRequest: { create: jest.fn().mockResolvedValue(createdRequest) },
       room: { findFirst: jest.fn().mockResolvedValue({ id: 'room-1', outOfServiceLocked: false }), update: jest.fn().mockResolvedValue({}) },

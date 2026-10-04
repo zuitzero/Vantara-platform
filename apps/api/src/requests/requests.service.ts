@@ -1,3 +1,5 @@
+import { auditMutation } from '../rbac/audit.service';
+import { AuditAction } from '@prisma/client';
 import { RoomReadinessService } from '../room-readiness/room-readiness.service';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import {
@@ -65,7 +67,7 @@ export class RequestsService {
       });
 
       if (guest.roomId && input.category === GuestRequestCategory.HOUSEKEEPING) {
-        await tx.housekeepingTask.create({
+        const task = await tx.housekeepingTask.create({
           data: {
             tenantId,
             propertyId: guest.propertyId!,
@@ -76,10 +78,11 @@ export class RequestsService {
             priority: this.toOperationsPriority(input.priority),
           },
         });
+        await auditMutation(tx, tenantId, AuditAction.HOUSEKEEPING_CREATED, 'housekeeping', task.id, { roomId: guest.roomId, blocksRoom: false, reason: 'GUEST_REQUEST' });
       }
 
       if (guest.roomId && input.category === GuestRequestCategory.MAINTENANCE) {
-        await tx.maintenanceTicket.create({
+        const ticket = await tx.maintenanceTicket.create({
           data: {
             tenantId,
             propertyId: guest.propertyId!,
@@ -90,6 +93,7 @@ export class RequestsService {
             priority: this.toOperationsPriority(input.priority),
           },
         });
+        await auditMutation(tx, tenantId, AuditAction.MAINTENANCE_CREATED, 'maintenance', ticket.id, { roomId: guest.roomId, blocksRoom: false, reason: 'GUEST_REQUEST' });
       }
 
       if (guest.roomId && (input.category === GuestRequestCategory.HOUSEKEEPING || input.category === GuestRequestCategory.MAINTENANCE)) {

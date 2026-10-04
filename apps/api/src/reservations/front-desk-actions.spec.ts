@@ -14,6 +14,7 @@ import { ReservationsService } from './reservations.service';
 function fixture(status: ReservationStatus = ReservationStatus.CONFIRMED) {
   const current = { id: 'reservation-a', tenantId: 'hotel-a', guestId: 'guest-a', propertyId: 'property-a', roomTypeId: 'type-a', roomId: 'room-a', status, confirmationCode: 'VNT-TEST', checkIn: new Date('2026-10-10'), checkOut: new Date('2026-10-12'), room: { number: '101' } };
   const tx = {
+    auditLog: { create: jest.fn() },
     reservation: {
       findFirst: jest.fn().mockImplementation(async query => typeof query.where.id === 'string' ? current : null),
       update: jest.fn().mockResolvedValue(current),
@@ -89,6 +90,7 @@ describe('Front Desk reservation assignment and safe lifecycle', () => {
       data: { occupancyStatus: 'OCCUPIED' },
     });
     expect(tx.guest.update).toHaveBeenCalledWith({ where: { id: 'guest-a', tenantId: 'hotel-a' }, data: { roomId: 'room-a', propertyId: 'property-a' } });
+    expect(tx.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: 'RESERVATION_CHECKED_IN', resourceId: current.id }) }));
   });
 
   it.each(['OCCUPIED', 'CLEANING', 'MAINTENANCE', 'OUT_OF_SERVICE'])('rejects check-in when conditional claim fails (%s)', async state => {
@@ -135,6 +137,7 @@ describe('Front Desk reservation assignment and safe lifecycle', () => {
     await service.updateStatusForTenant('hotel-a', current.id, ReservationStatus.CHECKED_OUT);
     expect(tx.room.update).toHaveBeenCalledWith({ where: { id: 'room-a', property: { tenantId: 'hotel-a' } }, data: { occupancyStatus: 'VACANT' } });
     expect(tx.housekeepingTask.create).not.toHaveBeenCalled();
+    expect(tx.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: 'RESERVATION_CHECKED_OUT', resourceId: current.id }) }));
     expect(tx.room.update).toHaveBeenCalledWith(expect.objectContaining({ data: { readinessStatus: 'CLEANING' } }));
   });
 
@@ -165,7 +168,9 @@ describe('Front Desk authorization and input ownership', () => {
   });
   it('creates a guest with authenticated tenant ownership and optional contacts', async () => {
     const create = jest.fn().mockResolvedValue({ id: 'guest-a' });
-    const service = new GuestsService({ guest: { create }, property: { findFirst: jest.fn().mockResolvedValue({ id: 'property-a' }) } } as any);
+    const guestDb = { guest: { create }, property: { findFirst: jest.fn().mockResolvedValue({ id: 'property-a' }) }, auditLog: { create: jest.fn() }, $transaction: jest.fn() };
+    guestDb.$transaction.mockImplementation(async callback => callback(guestDb));
+    const service = new GuestsService(guestDb as any);
     await service.createForTenant('hotel-a', { firstName: ' Test ', lastName: ' Guest ', email: 'TEST@example.com', phone: '5551234', propertyId: 'property-a' });
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ tenantId: 'hotel-a', firstName: 'Test', lastName: 'Guest', email: 'test@example.com', phone: '5551234', propertyId: 'property-a' }) }));
   });

@@ -1,3 +1,5 @@
+import { auditMutation } from '../rbac/audit.service';
+import { AuditAction } from '@prisma/client';
 import { RoomReadinessService } from '../room-readiness/room-readiness.service';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -49,13 +51,12 @@ export class RoomsService {
   }
 
   async updateOccupancyForTenant(tenantId: string, roomId: string, occupancyStatus: RoomOccupancyStatus) {
-    const room = await this.prisma.room.findFirst({ where: { id: roomId, property: { tenantId } } });
-    if (!room) throw new NotFoundException('Room not found.');
-
-    return this.prisma.room.update({
-      where: { id: room.id },
-      data: { occupancyStatus },
-      include: { property: true, roomType: true },
+    return this.readiness.transaction(async tx => {
+      const room = await tx.room.findFirst({ where: { id: roomId, property: { tenantId } } });
+      if (!room) throw new NotFoundException('Room not found.');
+      const updated = await tx.room.update({ where: { id: roomId, property: { tenantId } }, data: { occupancyStatus }, include: { property: true, roomType: true } });
+      if (room.occupancyStatus !== occupancyStatus) await auditMutation(tx, tenantId, AuditAction.ROOM_OCCUPANCY_OVERRIDDEN, 'room', roomId, { occupancyStatus, previousOccupancyStatus: room.occupancyStatus });
+      return updated;
     });
   }
 
@@ -68,6 +69,9 @@ export class RoomsService {
       if (!room) throw new NotFoundException('Room not found.');
       await tx.room.update({ where: { id: roomId, property: { tenantId } },
         data: { outOfServiceLocked: readinessStatus === RoomReadinessStatus.OUT_OF_SERVICE } });
+      if (room.outOfServiceLocked !== (readinessStatus === RoomReadinessStatus.OUT_OF_SERVICE)) {
+        await auditMutation(tx, tenantId, readinessStatus === RoomReadinessStatus.OUT_OF_SERVICE ? AuditAction.ROOM_OUT_OF_SERVICE_LOCKED : AuditAction.ROOM_OUT_OF_SERVICE_UNLOCKED, 'room', roomId);
+      }
       return this.readiness.recalculate(tx, tenantId, roomId);
     });
   }

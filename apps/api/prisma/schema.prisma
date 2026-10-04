@@ -148,6 +148,29 @@ enum IncidentStatus {
 }
 
 enum AuditAction {
+  RESERVATION_CREATED
+  RESERVATION_ROOM_ASSIGNED
+  RESERVATION_CONFIRMED
+  RESERVATION_CHECKED_IN
+  RESERVATION_CHECKED_OUT
+  RESERVATION_CANCELED
+  RESERVATION_NO_SHOW
+  GUEST_CREATED
+  ROOM_OCCUPANCY_OVERRIDDEN
+  ROOM_OUT_OF_SERVICE_LOCKED
+  ROOM_OUT_OF_SERVICE_UNLOCKED
+  HOUSEKEEPING_CREATED
+  HOUSEKEEPING_ASSIGNED
+  HOUSEKEEPING_STATUS_CHANGED
+  HOUSEKEEPING_BLOCKING_CHANGED
+  MAINTENANCE_CREATED
+  MAINTENANCE_ASSIGNED
+  MAINTENANCE_STATUS_CHANGED
+  MAINTENANCE_BLOCKING_CHANGED
+  STAFF_PROFILE_CREATED
+  STAFF_PROFILE_CHANGED
+  WORKSPACE_CREATED
+  WORKSPACE_CREATE_FAILED
   CREATE
   UPDATE
   DELETE
@@ -185,6 +208,7 @@ model User {
   name String
   memberships Membership[]
   sessions Session[]
+  notificationReads NotificationRead[]
   auditLogs AuditLog[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -455,6 +479,8 @@ model Notification {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  reads NotificationRead[]
+  @@unique([id, tenantId])
   @@index([tenantId, audience, createdAt])
   @@index([tenantId, recipientId, readAt])
   @@index([tenantId, createdAt])
@@ -527,4 +553,16 @@ model AuditLog {
   @@index([actorUserId, createdAt])
   @@index([resourceType, resourceId, createdAt])
   @@map("audit_logs")
+}
+
+model NotificationRead {
+  notificationId String
+  tenantId String
+  userId String
+  readAt DateTime @default(now())
+  notification Notification @relation(fields: [notificationId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([notificationId, userId])
+  @@index([tenantId, userId])
+  @@map("notification_reads")
 }

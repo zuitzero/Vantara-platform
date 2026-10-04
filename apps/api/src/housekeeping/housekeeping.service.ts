@@ -1,3 +1,5 @@
+import { auditMutation } from '../rbac/audit.service';
+import { AuditAction } from '@prisma/client';
 import { RoomReadinessService } from '../room-readiness/room-readiness.service';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { HousekeepingStatus, StaffDepartment } from '@prisma/client';
@@ -42,6 +44,8 @@ export class HousekeepingService {
       });
 
       await this.readiness.recalculate(tx, tenantId, room.id);
+      await auditMutation(tx, tenantId, AuditAction.HOUSEKEEPING_CREATED, 'housekeeping', task.id, { roomId: room.id, blocksRoom: task.blocksRoom, assignedStaffId: task.assignedStaffId ?? null, status: task.status });
+      await this.staff.notifyWork(tx, tenantId, task, 'housekeeping', !!task.assignedStaffId, true);
       return task;
     });
   }
@@ -84,6 +88,10 @@ export class HousekeepingService {
       if (nextStatus !== current.status || input.blocksRoom !== undefined) {
         await this.readiness.recalculate(tx, tenantId, current.roomId);
       }
+      if (input.assignedStaffId !== undefined && input.assignedStaffId !== current.assignedStaffId) await auditMutation(tx, tenantId, AuditAction.HOUSEKEEPING_ASSIGNED, 'housekeeping', current.id, { assignedStaffId: input.assignedStaffId, previousAssignedStaffId: current.assignedStaffId });
+      if (nextStatus !== current.status) await auditMutation(tx, tenantId, AuditAction.HOUSEKEEPING_STATUS_CHANGED, 'housekeeping', current.id, { status: nextStatus, previousStatus: current.status });
+      if (input.blocksRoom !== undefined && input.blocksRoom !== current.blocksRoom) await auditMutation(tx, tenantId, AuditAction.HOUSEKEEPING_BLOCKING_CHANGED, 'housekeeping', current.id, { blocksRoom: input.blocksRoom });
+      await this.staff.notifyWork(tx, tenantId, task, 'housekeeping', input.assignedStaffId !== undefined && input.assignedStaffId !== current.assignedStaffId, false);
       return task;
     });
   }
