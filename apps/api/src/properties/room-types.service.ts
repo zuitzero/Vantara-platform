@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateRoomTypeDto } from './room-types.dto';
 
@@ -15,19 +16,23 @@ export class RoomTypesService {
   }
 
   async createForTenant(tenantId: string, propertyId: string, input: CreateRoomTypeDto) {
-    const property = await this.prisma.property.findFirst({ where: { id: propertyId, tenantId } });
+    const property = await this.prisma.property.findFirst({ where: { id: propertyId, tenantId, tenant: { type: 'HOTEL' } } });
     if (!property) throw new NotFoundException('Property not found.');
 
     const code = input.code.trim().toUpperCase();
     if (!code) throw new BadRequestException('Room type code is required.');
 
-    return this.prisma.roomType.create({
+    if (!input.name.trim()) throw new BadRequestException('Room type name is required.');
+    try { return await this.prisma.roomType.create({
       data: {
         propertyId,
         name: input.name.trim(),
         code,
         maxGuests: input.maxGuests,
       },
-    });
+    }); } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new ConflictException('This room type code already exists in this property.');
+      throw error;
+    }
   }
 }

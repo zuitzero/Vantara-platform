@@ -1,5 +1,6 @@
 import { RoomReadinessService } from '../room-readiness/room-readiness.service';
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { RoomOccupancyStatus, RoomReadinessStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateRoomDto } from './rooms.dto';
@@ -27,20 +28,24 @@ export class RoomsService {
   }
 
   async createForTenant(tenantId: string, propertyId: string, input: CreateRoomDto) {
-    const property = await this.prisma.property.findFirst({ where: { id: propertyId, tenantId } });
+    const property = await this.prisma.property.findFirst({ where: { id: propertyId, tenantId, tenant: { type: 'HOTEL' } } });
     if (!property) throw new NotFoundException('Property not found.');
 
     const roomType = await this.prisma.roomType.findFirst({ where: { id: input.roomTypeId, propertyId } });
     if (!roomType) throw new BadRequestException('Room type does not belong to this property.');
 
-    return this.prisma.room.create({
+    if (!input.number.trim()) throw new BadRequestException('Room number is required.');
+    try { return await this.prisma.room.create({
       data: {
         propertyId,
         roomTypeId: input.roomTypeId,
         number: input.number.trim(),
       },
       include: { property: true, roomType: true },
-    });
+    }); } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new ConflictException('This room number already exists in this property.');
+      throw error;
+    }
   }
 
   async updateOccupancyForTenant(tenantId: string, roomId: string, occupancyStatus: RoomOccupancyStatus) {

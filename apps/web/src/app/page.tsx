@@ -111,7 +111,7 @@ export default function Home() {
   }
 
   if (workspaceError || !workspace) {
-    return <main className="workspace-gate"><div className="gate-panel gate-error"><strong>Workspace unavailable</strong><span>Vantara could not resolve an authenticated hotel workspace.</span></div></main>;
+    return <main className="workspace-gate"><div className="gate-panel gate-error"><strong>Workspace unavailable</strong><span>Vantara could not resolve an authenticated hotel workspace.</span><a href="/onboarding">Sign in or create a hotel workspace →</a></div></main>;
   }
 
   if (!isHotelRole) {
@@ -132,7 +132,7 @@ export default function Home() {
       <div className="brand"><span className="brand-mark">V</span><span>VANTARA</span><small>HOTEL OPERATING SYSTEM</small></div>
       <div className="hotel-card"><div className="eyebrow">Active property</div><div className="hotel-name">{hotel}</div><div className="hotel-meta"><span className="signal-dot" />{plan} · {workspace.subscription?.status ?? 'UNSUBSCRIBED'}</div></div>
       <nav className="nav">
-        <div className="nav-label">Workspace</div>
+        <div className="nav-label">Workspace</div>{isHotelAdmin && <a className="refresh-button" href="/onboarding">Initial hotel setup →</a>}
         {visibleNav.map((item) => <button key={item.label} className={`${active === item.label ? 'active' : ''} ${!item.live ? 'nav-disabled' : ''}`} onClick={() => item.live && setActive(item.label)} disabled={!item.live} title={!item.live ? `${item.label} module is next in the roadmap` : undefined}><span className="nav-glyph">{item.glyph}</span>{item.label}{item.live && item.label !== 'Overview' && <span className="nav-count">LIVE</span>}{!item.live && <span className="nav-soon">SOON</span>}</button>)}
       </nav>
       <div className="sidebar-footer"><div className="system-line"><span className="signal-dot" /> TENANT CONTEXT ACTIVE</div><div className="user"><div className="avatar">{name.slice(0, 1).toUpperCase()}</div><div><strong>{name}</strong><span>{role}</span></div></div></div>

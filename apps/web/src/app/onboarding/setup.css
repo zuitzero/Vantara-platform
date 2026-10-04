@@ -1,0 +1,11 @@
+.setup-shell { min-height: 100vh; padding: 32px 16px; background: #080c0b; color: #edf6f0; }
+.setup-panel { max-width: 760px; margin: auto; padding: 28px; border: 1px solid #24372e; border-radius: 16px; background: #101813; }
+.setup-panel a { color: #7bea9e; }
+.setup-panel label { display: grid; gap: 8px; margin: 10px 0; }
+.setup-panel fieldset { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; border: 0; padding: 0; }
+.setup-panel input, .setup-panel select, .setup-panel button { border: 1px solid #345141; border-radius: 8px; padding: 10px; background: #14221a; color: #edf6f0; font: inherit; }
+.setup-panel button { cursor: pointer; }
+.setup-panel button:disabled { opacity: .5; cursor: wait; }
+.setup-tabs, .setup-checklist { display: flex; flex-wrap: wrap; gap: 12px; margin: 20px 0; }
+.setup-checklist span { border: 1px solid #345141; padding: 8px; border-radius: 8px; }
+@media (max-width: 600px) { .setup-panel { padding: 16px; } .setup-panel fieldset { grid-template-columns: 1fr; } }
