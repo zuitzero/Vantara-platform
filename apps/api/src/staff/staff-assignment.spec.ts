@@ -1,3 +1,4 @@
+import { NotificationsService } from '../notifications/notifications.service';
 import { RoomReadinessService } from '../room-readiness/room-readiness.service';
 import { BadRequestException, ExecutionContext, ForbiddenException, NotFoundException, ValidationPipe } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
@@ -15,11 +16,13 @@ import { CreateStaffDto, UpdateStaffDto } from './staff.dto';
 import { StaffService } from './staff.service';
 
 function fixture(department: StaffDepartment = StaffDepartment.HOUSEKEEPING) {
-  const membership = { id: 'member-a', tenantId: 'hotel-a', role: MembershipRole.HOTEL_STAFF, tenant: { type: TenantType.HOTEL }, user: { name: 'Staff A' } };
+  const membership = { id: 'member-a', userId: 'user-a', tenantId: 'hotel-a', role: MembershipRole.HOTEL_STAFF, tenant: { type: TenantType.HOTEL }, user: { name: 'Staff A' } };
   const profile = { id: 'staff-a', tenantId: 'hotel-a', membershipId: membership.id, propertyId: 'property-a', department, operationalStatus: StaffOperationalStatus.ACTIVE, membership };
   const task = { id: 'work-a', tenantId: 'hotel-a', propertyId: 'property-a', roomId: 'room-a', status: department === StaffDepartment.HOUSEKEEPING ? 'PENDING' : 'OPEN', assignedStaffId: null as string | null, startedAt: null, completedAt: null, resolvedAt: null };
   const work = { findFirst: jest.fn().mockResolvedValue(task), findMany: jest.fn().mockResolvedValue([]), create: jest.fn().mockImplementation(async q => q.data), update: jest.fn().mockImplementation(async q => ({ ...task, ...q.data })), count: jest.fn().mockResolvedValue(0) };
   const db = {
+    auditLog: { create: jest.fn() },
+    notification: { create: jest.fn().mockResolvedValue({ id: 'notification-a' }) },
     tenant: { findUnique: jest.fn().mockResolvedValue({ type: TenantType.HOTEL }) },
     membership: { findFirst: jest.fn().mockResolvedValue(membership), findMany: jest.fn().mockResolvedValue([]) },
     property: { findFirst: jest.fn().mockResolvedValue({ id: 'property-a' }) },
@@ -29,7 +32,7 @@ function fixture(department: StaffDepartment = StaffDepartment.HOUSEKEEPING) {
     $transaction: jest.fn(),
   };
   db.$transaction.mockImplementation(async callback => callback(db));
-  const staff = new StaffService(db as any);
+  const staff = new StaffService(db as any, new NotificationsService(db as any, { emit: jest.fn() } as any));
   return { db, profile, membership, task, staff };
 }
 

@@ -1,3 +1,5 @@
+import { auditMutation } from '../rbac/audit.service';
+import { AuditAction } from '@prisma/client';
 import { RoomReadinessService } from '../room-readiness/room-readiness.service';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { HousekeepingStatus, Prisma, ReservationStatus, RoomOccupancyStatus, RoomReadinessStatus } from '@prisma/client';
@@ -56,7 +58,7 @@ export class ReservationsService {
         await this.validateRoom(tx, tenantId, input.roomId, input.propertyId, input.roomTypeId);
         await this.assertNoOverlap(tx, tenantId, input.roomId, input.checkIn, input.checkOut);
       }
-      return tx.reservation.create({
+      const reservation = await tx.reservation.create({
         data: {
           tenantId, propertyId: input.propertyId, guestId: input.guestId,
           roomTypeId: input.roomTypeId, roomId: input.roomId,
@@ -68,6 +70,8 @@ export class ReservationsService {
         },
         include: { guest: true, property: true, roomType: true, room: true },
       });
+      await auditMutation(tx, tenantId, AuditAction.RESERVATION_CREATED, 'reservation', reservation.id, { propertyId: reservation.propertyId, roomId: reservation.roomId ?? null, status: reservation.status });
+      return reservation;
     });
   }
 
@@ -81,6 +85,7 @@ export class ReservationsService {
       await this.validateRoom(tx, tenantId, roomId, reservation.propertyId, reservation.roomTypeId);
       await this.assertNoOverlap(tx, tenantId, roomId, reservation.checkIn, reservation.checkOut, reservation.id);
       await tx.reservation.update({ where: { id: reservation.id, tenantId }, data: { roomId } });
+      if (reservation.roomId !== roomId) await auditMutation(tx, tenantId, AuditAction.RESERVATION_ROOM_ASSIGNED, 'reservation', reservation.id, { roomId, previousRoomId: reservation.roomId ?? null });
     });
     return this.getForTenant(tenantId, reservationId);
   }
@@ -152,7 +157,7 @@ export class ReservationsService {
         });
 
         if (!existingTask) {
-          await tx.housekeepingTask.create({
+          const turnover = await tx.housekeepingTask.create({
             data: {
               tenantId,
               propertyId: current.propertyId,
@@ -162,9 +167,12 @@ export class ReservationsService {
               notes: `Automatically created after reservation ${current.confirmationCode} checked out.`,
             },
           });
+          await auditMutation(tx, tenantId, AuditAction.HOUSEKEEPING_CREATED, 'housekeeping', turnover.id, { roomId: current.roomId, blocksRoom: true, reason: 'POST_CHECKOUT' });
         }
         await this.readiness.recalculate(tx, tenantId, current.roomId);
       }
+      const actions: Partial<Record<ReservationStatus, AuditAction>> = { CONFIRMED: AuditAction.RESERVATION_CONFIRMED, CHECKED_IN: AuditAction.RESERVATION_CHECKED_IN, CHECKED_OUT: AuditAction.RESERVATION_CHECKED_OUT, CANCELED: AuditAction.RESERVATION_CANCELED, NO_SHOW: AuditAction.RESERVATION_NO_SHOW };
+      await auditMutation(tx, tenantId, actions[nextStatus]!, 'reservation', current.id, { status: nextStatus, previousStatus: current.status, roomId: current.roomId ?? null });
     });
 
     return this.getForTenant(tenantId, reservationId);

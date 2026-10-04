@@ -1,3 +1,6 @@
+import { NotificationsService } from '../notifications/notifications.service';
+import { auditMutation } from '../rbac/audit.service';
+import { AuditAction } from '@prisma/client';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { MembershipRole, Prisma, StaffDepartment, StaffOperationalStatus, TenantType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -9,7 +12,7 @@ const staffInclude = { membership: staffIdentity, property: { select: { id: true
 
 @Injectable()
 export class StaffService {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService, private readonly notifications: NotificationsService) { }
 
   async assertHotel(tenantId: string, db: Prisma.TransactionClient = this.prisma) {
     const tenant = await db.tenant.findUnique({ where: { id: tenantId }, select: { type: true } });
@@ -45,10 +48,12 @@ export class StaffService {
         throw new BadRequestException('Staff requires a HOTEL_ADMIN or HOTEL_STAFF membership in this hotel.');
       }
       await this.validateProperty(tx, tenantId, input.propertyId);
-      return tx.operationalStaff.create({
+      const created = await tx.operationalStaff.create({
         data: { tenantId, membershipId: membership.id, propertyId: input.propertyId, department: input.department, operationalStatus: input.operationalStatus },
         include: staffInclude,
       });
+      await auditMutation(tx, tenantId, AuditAction.STAFF_PROFILE_CREATED, 'staff', created.id, { department: created.department, propertyId: created.propertyId ?? null, operationalStatus: created.operationalStatus });
+      return created;
     });
   }
   async updateForTenant(tenantId: string, staffId: string, input: UpdateStaffDto) {
@@ -68,10 +73,12 @@ export class StaffService {
         ]);
         if (housekeeping || maintenance) throw new BadRequestException('Reassign or finish open work before changing this staff profile.');
       }
-      return tx.operationalStaff.update({
+      const updated = await tx.operationalStaff.update({
         where: { id: staffId, tenantId },
         data: { propertyId: input.propertyId, department: input.department, operationalStatus: input.operationalStatus }, include: staffInclude,
       });
+      if (changed) await auditMutation(tx, tenantId, AuditAction.STAFF_PROFILE_CHANGED, 'staff', staffId, { department: updated.department, propertyId: updated.propertyId ?? null, operationalStatus: updated.operationalStatus });
+      return updated;
     });
   }
   async validateAssignee(db: Prisma.TransactionClient, tenantId: string, staffId: string, propertyId: string, department: StaffDepartment) {
@@ -84,12 +91,21 @@ export class StaffService {
     if (staff.department !== department) throw new BadRequestException(`Assigned staff must belong to ${department}.`);
     if (staff.propertyId && staff.propertyId !== propertyId) throw new BadRequestException('Staff property scope does not match this work.');
   }
+  async notifyWork(tx: Prisma.TransactionClient, tenantId: string, work: { id: string; roomId: string; propertyId: string; assignedStaffId: string | null; priority: string }, kind: 'housekeeping' | 'maintenance', assignmentChanged: boolean, created: boolean) {
+    if (assignmentChanged && work.assignedStaffId) {
+      const profile = await tx.operationalStaff.findFirst({ where: { id: work.assignedStaffId, tenantId }, include: { membership: true } });
+      if (!profile) throw new BadRequestException('Assigned staff not found.');
+      await this.notifications.queue(tx, { tenantId, audience: 'HOTEL', recipientId: profile.membership.userId, severity: kind === 'maintenance' && work.priority === 'URGENT' ? 'CRITICAL' : kind === 'maintenance' && work.priority === 'HIGH' ? 'HIGH' : 'INFO', type: `${kind}.assigned`, title: `${kind === 'housekeeping' ? 'Housekeeping' : 'Maintenance'} work assigned`, message: 'You have a new operational assignment.', metadata: { workId: work.id, roomId: work.roomId, propertyId: work.propertyId } });
+    } else if (created && kind === 'maintenance' && ['HIGH', 'URGENT'].includes(work.priority)) {
+      await this.notifications.queue(tx, { tenantId, audience: 'HOTEL', severity: work.priority === 'URGENT' ? 'CRITICAL' : 'HIGH', type: 'maintenance.attention', title: 'Maintenance requires attention', message: 'High-priority maintenance work was created.', metadata: { workId: work.id, roomId: work.roomId } });
+    }
+  }
   private async validateProperty(db: Prisma.TransactionClient, tenantId: string, propertyId?: string | null) {
     if (propertyId && !await db.property.findFirst({ where: { id: propertyId, tenantId } })) throw new BadRequestException('Property does not belong to this hotel.');
   }
   async transaction<T>(operation: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
     for (let attempt = 0;attempt < 3;attempt++) {
-      try { return await this.prisma.$transaction(operation, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }); }
+      try { return await this.notifications.transaction(operation, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }); }
       catch (error) {
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new ConflictException('This membership already has a staff profile.');
         if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2034') throw error;

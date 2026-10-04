@@ -1,6 +1,7 @@
+import { auditBootstrapFailure, auditBootstrap } from '../rbac/audit.service';
 import { plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
-import { BadRequestException, ConflictException, ForbiddenException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { createHash, randomBytes, scrypt as nodeScrypt } from 'node:crypto';
 import { promisify } from 'node:util';
 import { MembershipRole, PlanCode, Prisma } from '@prisma/client';
@@ -71,6 +72,7 @@ export class OnboardingService {
           },
         });
 
+        await auditBootstrap(tx, tenant.id, user.id, plan);
         return {
           userId: user.id,
           tenantId: tenant.id,
@@ -80,6 +82,7 @@ export class OnboardingService {
         };
       });
     } catch (error) {
+      try { await auditBootstrapFailure(this.prisma); } catch { new Logger(OnboardingService.name).warn('Workspace bootstrap failed and its failure audit could not be stored.'); }
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new ConflictException('A user, hotel slug, or workspace already exists with this value.');
       }

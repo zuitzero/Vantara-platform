@@ -1,3 +1,4 @@
+import { NotificationsService } from '../notifications/notifications.service';
 import { BadRequestException, ConflictException, NotFoundException, ValidationPipe } from '@nestjs/common';
 import { GuestRequestCategory, HousekeepingStatus, MaintenanceStatus, Prisma, ReservationStatus, RoomReadinessStatus } from '@prisma/client';
 import { RoomReadinessService } from './room-readiness.service';
@@ -23,6 +24,8 @@ function fixture() {
     };
   }
   const db = {
+    auditLog: { create: jest.fn() },
+    notification: { create: jest.fn().mockResolvedValue({ id: 'notification-a' }) },
     room: { findFirst: jest.fn(async ({ where }) => where.id === room.id && where.property.tenantId === 'hotel-a' ? room : null), update: jest.fn(async ({ data }) => Object.assign(room, data)) },
     tenant: { findUnique: jest.fn().mockResolvedValue({ type: 'HOTEL' }) },
     housekeepingTask: queue(hk, ['COMPLETED', 'CANCELLED']), maintenanceTicket: queue(mt, ['RESOLVED', 'CANCELLED']),
@@ -32,7 +35,7 @@ function fixture() {
     $transaction: jest.fn(),
   };
   db.$transaction.mockImplementation(async callback => callback(db));
-  const readiness = new RoomReadinessService(db as any); const staff = new StaffService(db as any);
+  const readiness = new RoomReadinessService(db as any); const staff = new StaffService(db as any, new NotificationsService(db as any, { emit: jest.fn() } as any));
   const housekeeping = new HousekeepingService(db as any, staff, readiness);
   const maintenance = new MaintenanceService(db as any, staff, readiness);
   const rooms = new RoomsService(db as any, readiness);

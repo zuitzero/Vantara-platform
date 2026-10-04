@@ -1,3 +1,4 @@
+import { RbacService } from '../rbac/rbac.service';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { OnGatewayConnection, WebSocketGateway, WebSocketServer } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
@@ -19,7 +20,7 @@ export class NotificationsGateway implements OnGatewayConnection {
   @WebSocketServer()
   server!: Server;
 
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService, private readonly rbac: RbacService) {}
 
   async handleConnection(socket: Socket) {
     try {
@@ -31,10 +32,16 @@ export class NotificationsGateway implements OnGatewayConnection {
       const recipientId = workspace.user.id;
       const role = workspace.membership.role;
 
+      if (!['HOTEL_ADMIN', 'HOTEL_STAFF', 'GUEST'].includes(role)) throw new UnauthorizedException('Hotel realtime only.');
+      const access = await this.rbac.getTenantAccess(recipientId, tenantId);
+      if (access?.tenantType !== 'HOTEL') throw new UnauthorizedException('Hotel membership required.');
+      if (['HOTEL_ADMIN', 'HOTEL_STAFF'].includes(role)) {
+        await this.rbac.assertTenantAccess(recipientId, tenantId, 'notifications.read');
+      }
       socket.join(`tenant:${tenantId}:recipient:${recipientId}`);
 
       // Hotel-wide realtime events are restricted to hotel staff roles.
-      if (['OWNER', 'ADMIN', 'MANAGER', 'STAFF'].includes(role)) {
+      if (['HOTEL_ADMIN', 'HOTEL_STAFF'].includes(role)) {
         socket.join(`tenant:${tenantId}:audience:HOTEL`);
       }
     } catch {
@@ -62,3 +69,4 @@ export class NotificationsGateway implements OnGatewayConnection {
       .join('=');
   }
 }
+

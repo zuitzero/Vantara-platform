@@ -19,6 +19,7 @@ import { RbacService } from '../rbac/rbac.service';
 const input = { name: ' Admin ', email: ' ADMIN@Example.com ', password: 'safe-password', hotelName: ' Hotel A ', slug: ' HOTEL-A ', propertyName: ' Main property ', plan: 'LOBBY' };
 function fixture() {
   const tx = {
+    auditLog: { create: jest.fn() },
     user: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 'user-a' }) },
     tenant: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 'hotel-a' }) },
     membership: { create: jest.fn().mockResolvedValue({}) },

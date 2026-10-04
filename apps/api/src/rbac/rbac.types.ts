@@ -58,6 +58,7 @@ const HOTEL_STAFF = new Set<Permission>([
 const HOTEL_ADMIN = new Set<Permission>([
   ...HOTEL_STAFF,
   PERMISSIONS.HOTEL_MANAGE,
+  PERMISSIONS.SECURITY_READ,
   PERMISSIONS.GUESTS_MANAGE,
   PERMISSIONS.ROOMS_MANAGE,
   PERMISSIONS.RESERVATIONS_MANAGE,
@@ -100,3 +101,4 @@ export function hasPermission(role: MembershipRole, permission: Permission): boo
 export function permissionsFor(role: MembershipRole): Permission[] {
   return [...ROLE_PERMISSIONS[role]];
 }
+

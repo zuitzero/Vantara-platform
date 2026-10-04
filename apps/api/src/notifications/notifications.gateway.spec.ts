@@ -14,10 +14,10 @@ describe('NotificationsGateway', () => {
       getWorkspace: jest.fn().mockResolvedValue({
         user: { id: 'user-1' },
         tenant: { id: 'tenant-a' },
-        membership: { role: 'STAFF' },
+        membership: { role: 'HOTEL_STAFF' },
       }),
     } as any;
-    const gateway = new NotificationsGateway(authService);
+    const gateway = new NotificationsGateway(authService, { getTenantAccess: jest.fn().mockResolvedValue({ tenantType: 'HOTEL' }), assertTenantAccess: jest.fn() } as any);
     const socket = socketMock('vantara_session=session-token');
 
     await gateway.handleConnection(socket);
@@ -35,7 +35,7 @@ describe('NotificationsGateway', () => {
         membership: { role: 'GUEST' },
       }),
     } as any;
-    const gateway = new NotificationsGateway(authService);
+    const gateway = new NotificationsGateway(authService, { getTenantAccess: jest.fn().mockResolvedValue({ tenantType: 'HOTEL' }), assertTenantAccess: jest.fn() } as any);
     const socket = socketMock('vantara_session=session-token');
 
     await gateway.handleConnection(socket);
@@ -46,7 +46,7 @@ describe('NotificationsGateway', () => {
 
   it('disconnects clients without a valid session cookie', async () => {
     const authService = { getWorkspace: jest.fn() } as any;
-    const gateway = new NotificationsGateway(authService);
+    const gateway = new NotificationsGateway(authService, { getTenantAccess: jest.fn().mockResolvedValue({ tenantType: 'HOTEL' }), assertTenantAccess: jest.fn() } as any);
     const socket = socketMock('other_cookie=value');
 
     await gateway.handleConnection(socket);
@@ -55,3 +55,4 @@ describe('NotificationsGateway', () => {
     expect(socket.disconnect).toHaveBeenCalledWith(true);
   });
 });
+

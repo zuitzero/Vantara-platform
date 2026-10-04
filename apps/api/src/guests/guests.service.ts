@@ -1,3 +1,5 @@
+import { auditMutation } from '../rbac/audit.service';
+import { AuditAction } from '@prisma/client';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { ReservationStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -63,18 +65,22 @@ export class GuestsService {
       if (!property) throw new BadRequestException('Property does not belong to the active hotel.');
     }
 
-    return this.prisma.guest.create({
-      data: {
-        tenantId,
-        propertyId: input.propertyId,
-        roomId: input.roomId,
-        firstName: input.firstName.trim(),
-        lastName: input.lastName.trim(),
-        email: input.email?.trim().toLowerCase(),
-        phone: input.phone?.trim(),
-        notes: input.notes?.trim(),
-      },
-      include: { property: true, room: { include: { roomType: true } } },
+    return this.prisma.$transaction(async tx => {
+      const guest = await tx.guest.create({
+        data: {
+          tenantId,
+          propertyId: input.propertyId,
+          roomId: input.roomId,
+          firstName: input.firstName.trim(),
+          lastName: input.lastName.trim(),
+          email: input.email?.trim().toLowerCase(),
+          phone: input.phone?.trim(),
+          notes: input.notes?.trim(),
+        },
+        include: { property: true, room: { include: { roomType: true } } },
+      });
+      await auditMutation(tx, tenantId, AuditAction.GUEST_CREATED, 'guest', guest.id, { propertyId: guest.propertyId ?? null, roomId: guest.roomId ?? null });
+      return guest;
     });
   }
 
