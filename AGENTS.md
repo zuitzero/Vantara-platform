@@ -39,7 +39,7 @@ These are non-negotiable:
 3. Every protected resource must enforce both permission and tenant scope.
 4. Follow least privilege.
 5. Preserve OWNER / PLATFORM and hotel role separation.
-6. Billing write operations are OWNER-only on PLATFORM tenants.
+6. HOTEL self-service Billing writes require HOTEL_ADMIN with `billing.manage`. PLATFORM billing writes remain OWNER-only and separate from the Hotel Command Center.
 7. Prefer server-side authorization over UI-only hiding.
 8. Any cross-tenant lookup or mutation must be rejected.
 9. Add or update tests whenever authorization, tenant isolation, or operational state behavior changes.
@@ -183,3 +183,4 @@ When implementation details are ambiguous, prefer the option that preserves:
 `security -> tenant truth -> operational truth -> maintainability -> visual polish`
 
 If a choice materially changes product behavior or architecture, surface it instead of silently inventing a new product rule.
+
