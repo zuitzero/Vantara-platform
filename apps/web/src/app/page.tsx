@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { BillingCenter } from './billing-center';
 import { AuditCenter } from './audit-center';
 import { Overview } from './overview';
 import { RequestsCenter } from './requests-center';
@@ -39,7 +40,7 @@ const nav: NavItem[] = [
   { label: 'Activity', glyph: '◷', adminOnly: true, live: true },
   { label: 'Staff', glyph: '◫', adminOnly: true, live: true },
   { label: 'CRM', glyph: '◌', adminOnly: true },
-  { label: 'Finance', glyph: '$', adminOnly: true },
+  { label: 'Billing', glyph: '$', adminOnly: true, live: true },
   { label: 'Settings', glyph: '⚙', adminOnly: true },
 ];
 
@@ -98,6 +99,10 @@ export default function Home() {
   const isHotelAdmin = role === 'HOTEL_ADMIN';
   const isHotelRole = role === 'HOTEL_ADMIN' || role === 'HOTEL_STAFF';
 
+  useEffect(() => {
+    if (isHotelAdmin && new URL(window.location.href).searchParams.has('billing')) setActive('Billing');
+  }, [isHotelAdmin]);
+
   const visibleNav = useMemo(
     () => nav.filter((item) => !item.adminOnly || isHotelAdmin),
     [isHotelAdmin],
@@ -125,6 +130,7 @@ export default function Home() {
   if (active === 'Reservations') content = <ReservationsCenter base={base} canManage={isHotelAdmin} initialGuestId={reservationGuestId} onGuestConsumed={() => setReservationGuestId(null)} />;
   if (active === 'Requests') content = <RequestsCenter />;
   if (active === 'Rooms') content = <RoomsCenter base={base} canManage={isHotelAdmin} />;
+  if (active === 'Billing' && isHotelAdmin) content = <BillingCenter base={base} onState={subscription => setWorkspace(current => current ? { ...current, subscription } : current)} />;
   if (active === 'Activity' && isHotelAdmin) content = <AuditCenter base={base} />;
   if (active === 'Staff' && isHotelAdmin) content = <StaffCenter base={base} />;
   if (active === 'Housekeeping') content = <OperationsCenter key="housekeeping" base={base} mode="housekeeping" canManage={isHotelRole} />;

@@ -260,6 +260,8 @@ model Subscription {
   status SubscriptionStatus @default(TRIALING)
   stripeCustomerId String? @unique
   stripeSubscriptionId String? @unique
+  stripeCustomerRequestedAt DateTime?
+  checkoutAttempt StripeCheckoutAttempt?
   currentPeriodStart DateTime?
   currentPeriodEnd DateTime?
   cancelAtPeriodEnd Boolean @default(false)
@@ -268,6 +270,32 @@ model Subscription {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   @@index([plan, status])
   @@map("subscriptions")
+}
+
+model StripeCheckoutAttempt {
+  id String @id @default(cuid())
+  subscriptionId String @unique
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  plan PlanCode
+  priceId String
+  successUrl String
+  cancelUrl String
+  expiresAt DateTime
+  sessionId String? @unique
+  createdAt DateTime @default(now())
+  @@map("stripe_checkout_attempts")
+}
+
+model StripeWebhookEvent {
+  id String @id @default(cuid())
+  stripeEventId String @unique
+  type String
+  status String @default("RECEIVED")
+  processedAt DateTime?
+  createdAt DateTime @default(now())
+  lastError String?
+  @@index([status, createdAt])
+  @@map("stripe_webhook_events")
 }
 
 model Property {

@@ -8,7 +8,7 @@ export interface AuditContext {
   action: AuditAction; resourceType: string; resourceId?: string; success?: boolean;
   ipAddress?: string; userAgent?: string; metadata?: Prisma.InputJsonValue;
 }
-const safeKeys = new Set(['status', 'previousStatus', 'roomId', 'previousRoomId', 'propertyId', 'assignedStaffId', 'previousAssignedStaffId', 'blocksRoom', 'department', 'operationalStatus', 'occupancyStatus', 'previousOccupancyStatus', 'plan', 'requiredPermissions', 'reason', 'role', 'tenantType']);
+const safeKeys = new Set(['status', 'previousStatus', 'cancelAtPeriodEnd', 'roomId', 'previousRoomId', 'propertyId', 'assignedStaffId', 'previousAssignedStaffId', 'blocksRoom', 'department', 'operationalStatus', 'occupancyStatus', 'previousOccupancyStatus', 'plan', 'requiredPermissions', 'reason', 'role', 'tenantType']);
 export function safeAuditMetadata(metadata?: Prisma.InputJsonValue): Prisma.InputJsonObject {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return {};
   return Object.fromEntries(Object.entries(metadata).filter(([key, value]) => safeKeys.has(key) && (value === null || ['string', 'number', 'boolean'].includes(typeof value) || (key === 'requiredPermissions' && Array.isArray(value) && value.every(item => typeof item === 'string')))));
