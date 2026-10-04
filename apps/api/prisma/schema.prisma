@@ -291,6 +291,7 @@ model Room {
   number String
   occupancyStatus RoomOccupancyStatus @default(VACANT)
   readinessStatus RoomReadinessStatus @default(READY)
+  outOfServiceLocked Boolean @default(false)
   property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   roomType RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Restrict)
   guests Guest[]
@@ -392,6 +393,7 @@ model HousekeepingTask {
   notes String?
   priority OperationsPriority @default(NORMAL)
   status HousekeepingStatus @default(PENDING)
+  blocksRoom Boolean @default(true)
   assignedTo String? // Historical free-text label; no longer writable via the API.
   assignedStaffId String?
   assignedStaff OperationalStaff? @relation(fields: [assignedStaffId, tenantId], references: [id, tenantId], onDelete: Restrict)
@@ -419,6 +421,7 @@ model MaintenanceTicket {
   description String
   priority OperationsPriority @default(NORMAL)
   status MaintenanceStatus @default(OPEN)
+  blocksRoom Boolean @default(true)
   assignedTo String? // Historical free-text label; no longer writable via the API.
   assignedStaffId String?
   assignedStaff OperationalStaff? @relation(fields: [assignedStaffId, tenantId], references: [id, tenantId], onDelete: Restrict)

@@ -12,6 +12,7 @@ type Room = {
   number: string;
   occupancyStatus: RoomOccupancyStatus;
   readinessStatus: RoomReadinessStatus;
+  outOfServiceLocked: boolean;
   property: { id: string; name: string };
   roomType: { id: string; name: string; code: string };
   guests?: Array<{ id: string; firstName: string; lastName: string }>;
@@ -20,7 +21,7 @@ type Room = {
 
 const filters: RoomFilter[] = ['ALL', 'VACANT', 'OCCUPIED', 'READY', 'CLEANING', 'MAINTENANCE', 'OUT_OF_SERVICE'];
 const occupancyOptions: RoomOccupancyStatus[] = ['VACANT', 'OCCUPIED'];
-const readinessOptions: RoomReadinessStatus[] = ['READY', 'CLEANING', 'MAINTENANCE', 'OUT_OF_SERVICE'];
+const readinessOptions: RoomReadinessStatus[] = ['READY', 'OUT_OF_SERVICE'];
 
 export function RoomsCenter({ base, canManage }: { base: string; canManage: boolean }) {
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -103,8 +104,9 @@ export function RoomsCenter({ base, canManage }: { base: string; canManage: bool
       return <article className={`room-card ${room.readinessStatus.toLowerCase()} ${room.occupancyStatus.toLowerCase()}`} key={room.id}>
         <div className="room-card-head"><div><span className="room-number">{room.number}</span><span className="room-type">{room.roomType.name}</span></div><div><span className="room-status"><i />{room.occupancyStatus}</span><span className="room-status">{room.readinessStatus.replaceAll('_', ' ')}</span></div></div>
         <div className="room-card-body"><span>PROPERTY <b>{room.property.name}</b></span><span>GUEST <b>{guest ? `${guest.firstName} ${guest.lastName}` : 'None'}</b></span></div>
-        {canManage ? <div className="room-actions"><select value={room.occupancyStatus} disabled={updating === room.id} onChange={(event) => void patchRoom(room, 'occupancy', event.target.value as RoomOccupancyStatus)}>{occupancyOptions.map((status) => <option key={status} value={status}>{status}</option>)}</select><select value={room.readinessStatus} disabled={updating === room.id} onChange={(event) => void patchRoom(room, 'readiness', event.target.value as RoomReadinessStatus)}>{readinessOptions.map((status) => <option key={status} value={status}>{status.replaceAll('_', ' ')}</option>)}</select></div> : <div className="room-readonly">READ ONLY</div>}
+        {canManage ? <div className="room-actions"><select value={room.occupancyStatus} disabled={updating === room.id} onChange={(event) => void patchRoom(room, 'occupancy', event.target.value as RoomOccupancyStatus)}>{occupancyOptions.map((status) => <option key={status} value={status}>{status}</option>)}</select><select aria-label={`Administrative lock for room ${room.number}`} value={room.outOfServiceLocked ? 'OUT_OF_SERVICE' : 'READY'} disabled={updating === room.id} onChange={(event) => void patchRoom(room, 'readiness', event.target.value as RoomReadinessStatus)}>{readinessOptions.map((status) => <option key={status} value={status}>{status === 'READY' ? 'No administrative lock' : 'Lock: OUT OF SERVICE'}</option>)}</select></div> : <div className="room-readonly">READ ONLY</div>}
       </article>;
     })}</div>}
   </section>;
 }
+

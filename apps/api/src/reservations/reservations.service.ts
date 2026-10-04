@@ -1,3 +1,4 @@
+import { RoomReadinessService } from '../room-readiness/room-readiness.service';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { HousekeepingStatus, Prisma, ReservationStatus, RoomOccupancyStatus, RoomReadinessStatus } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
@@ -15,7 +16,7 @@ const ALLOWED_TRANSITIONS: Record<ReservationStatus, ReservationStatus[]> = {
 
 @Injectable()
 export class ReservationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly readiness: RoomReadinessService) {}
 
   listForTenant(tenantId: string) {
     return this.prisma.reservation.findMany({
@@ -137,7 +138,6 @@ export class ReservationsService {
           where: { id: current.roomId, property: { tenantId } },
           data: {
             occupancyStatus: RoomOccupancyStatus.VACANT,
-            readinessStatus: RoomReadinessStatus.CLEANING,
           },
         });
         await tx.guest.update({ where: { id: current.guestId, tenantId }, data: { roomId: null } });
@@ -146,6 +146,7 @@ export class ReservationsService {
           where: {
             tenantId,
             roomId: current.roomId,
+            blocksRoom: true,
             status: { in: [HousekeepingStatus.PENDING, HousekeepingStatus.ASSIGNED, HousekeepingStatus.IN_PROGRESS] },
           },
         });
@@ -156,11 +157,13 @@ export class ReservationsService {
               tenantId,
               propertyId: current.propertyId,
               roomId: current.roomId,
+              blocksRoom: true,
               title: `Post check-out cleaning · Room ${current.room?.number ?? ''}`.trim(),
               notes: `Automatically created after reservation ${current.confirmationCode} checked out.`,
             },
           });
         }
+        await this.readiness.recalculate(tx, tenantId, current.roomId);
       }
     });
 

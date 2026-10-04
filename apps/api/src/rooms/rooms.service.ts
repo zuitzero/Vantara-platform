@@ -1,3 +1,4 @@
+import { RoomReadinessService } from '../room-readiness/room-readiness.service';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { RoomOccupancyStatus, RoomReadinessStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -5,7 +6,7 @@ import { CreateRoomDto } from './rooms.dto';
 
 @Injectable()
 export class RoomsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly readiness: RoomReadinessService) {}
 
   listForTenant(tenantId: string) {
     return this.prisma.room.findMany({
@@ -54,13 +55,15 @@ export class RoomsService {
   }
 
   async updateReadinessForTenant(tenantId: string, roomId: string, readinessStatus: RoomReadinessStatus) {
-    const room = await this.prisma.room.findFirst({ where: { id: roomId, property: { tenantId } } });
-    if (!room) throw new NotFoundException('Room not found.');
-
-    return this.prisma.room.update({
-      where: { id: room.id },
-      data: { readinessStatus },
-      include: { property: true, roomType: true },
+    if (readinessStatus !== RoomReadinessStatus.READY && readinessStatus !== RoomReadinessStatus.OUT_OF_SERVICE) {
+      throw new BadRequestException('Cleaning and maintenance readiness are derived from blocking work.');
+    }
+    return this.readiness.transaction(async tx => {
+      const room = await tx.room.findFirst({ where: { id: roomId, property: { tenantId } } });
+      if (!room) throw new NotFoundException('Room not found.');
+      await tx.room.update({ where: { id: roomId, property: { tenantId } },
+        data: { outOfServiceLocked: readinessStatus === RoomReadinessStatus.OUT_OF_SERVICE } });
+      return this.readiness.recalculate(tx, tenantId, roomId);
     });
   }
 }

@@ -1,12 +1,13 @@
+import { RoomReadinessService } from '../room-readiness/room-readiness.service';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { HousekeepingStatus, StaffDepartment, RoomReadinessStatus } from '@prisma/client';
+import { HousekeepingStatus, StaffDepartment } from '@prisma/client';
 import { StaffService, staffIdentity } from '../staff/staff.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateHousekeepingTaskDto, UpdateHousekeepingTaskDto } from './housekeeping.dto';
 
 @Injectable()
 export class HousekeepingService {
-  constructor(private readonly prisma: PrismaService, private readonly staff: StaffService) { }
+  constructor(private readonly prisma: PrismaService, private readonly staff: StaffService, private readonly readiness: RoomReadinessService) { }
 
   assigneesForTenant(tenantId: string) { return this.staff.assigneesForTenant(tenantId, StaffDepartment.HOUSEKEEPING); }
 
@@ -32,6 +33,7 @@ export class HousekeepingService {
           title: input.title.trim(),
           notes: input.notes?.trim(),
           priority: input.priority,
+          blocksRoom: input.blocksRoom,
           assignedStaffId: input.assignedStaffId,
           status: input.assignedStaffId ? HousekeepingStatus.ASSIGNED : HousekeepingStatus.PENDING,
           dueAt: input.dueAt ? new Date(input.dueAt) : undefined,
@@ -39,12 +41,7 @@ export class HousekeepingService {
         include: { room: { include: { roomType: true } }, property: true, assignedStaff: { include: { membership: staffIdentity } } },
       });
 
-      if (room.readinessStatus !== RoomReadinessStatus.CLEANING) {
-        await tx.room.update({
-          where: { id: room.id, property: { tenantId } },
-          data: { readinessStatus: RoomReadinessStatus.CLEANING },
-        });
-      }
+      await this.readiness.recalculate(tx, tenantId, room.id);
       return task;
     });
   }
@@ -56,7 +53,7 @@ export class HousekeepingService {
       if (!current) throw new NotFoundException('Housekeeping task not found.');
 
       const terminal = (current.status === HousekeepingStatus.COMPLETED || current.status === HousekeepingStatus.CANCELLED);
-      if (terminal && (input.assignedStaffId !== undefined || (input.status !== undefined && input.status !== current.status))) {
+      if (terminal && (input.blocksRoom !== undefined || input.assignedStaffId !== undefined || (input.status !== undefined && input.status !== current.status))) {
         throw new BadRequestException('Closed work cannot be assigned or reopened.');
       }
       const assignedStaffId = input.assignedStaffId !== undefined ? input.assignedStaffId : current.assignedStaffId;
@@ -74,6 +71,7 @@ export class HousekeepingService {
         data: {
           status: nextStatus,
           priority: input.priority,
+          blocksRoom: input.blocksRoom,
           assignedStaffId: input.assignedStaffId,
           assignedTo: input.assignedStaffId !== undefined ? null : undefined,
           notes: input.notes?.trim(),
@@ -83,11 +81,8 @@ export class HousekeepingService {
         include: { room: { include: { roomType: true } }, property: true, assignedStaff: { include: { membership: staffIdentity } } },
       });
 
-      if (nextStatus === HousekeepingStatus.COMPLETED && current.status !== nextStatus) {
-        await tx.room.update({
-          where: { id: current.roomId, property: { tenantId } },
-          data: { readinessStatus: RoomReadinessStatus.READY },
-        });
+      if (nextStatus !== current.status || input.blocksRoom !== undefined) {
+        await this.readiness.recalculate(tx, tenantId, current.roomId);
       }
       return task;
     });
