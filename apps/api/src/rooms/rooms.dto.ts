@@ -1,8 +1,11 @@
-import { IsEnum, IsString, MinLength } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsEnum, IsString, MaxLength, MinLength } from 'class-validator';
 import { RoomOccupancyStatus, RoomReadinessStatus } from '@prisma/client';
 
 export class CreateRoomDto {
   @IsString()
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
+  @MaxLength(32)
   @MinLength(1)
   number!: string;
 
@@ -20,3 +23,4 @@ export class UpdateRoomReadinessDto {
   @IsEnum(RoomReadinessStatus)
   readinessStatus!: RoomReadinessStatus;
 }
+
