@@ -31,6 +31,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: vantara
+          POSTGRES_PASSWORD: vantara
+          POSTGRES_DB: vantara_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vantara -d vantara_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -48,6 +63,11 @@ jobs:
 
       - name: Generate Prisma client
         run: pnpm --filter @vantara/api exec prisma generate
+
+      - name: Validate fresh database migration chain
+        env:
+          DATABASE_URL: postgresql://vantara:vantara@localhost:5432/vantara_ci?schema=public
+        run: pnpm --filter @vantara/api exec prisma migrate deploy
 
       - name: Run API test suite
         run: pnpm --filter @vantara/api test
