@@ -5,6 +5,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { MembershipRole, Prisma, StaffDepartment, StaffOperationalStatus, TenantType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateStaffDto, UpdateStaffDto } from './staff.dto';
+import { EntitlementsService } from '../entitlements/entitlements.service';
 
 export const staffIdentity = { select: { id: true, role: true, user: { select: { id: true, name: true } } } } as const;
 const hotelRoles: MembershipRole[] = [MembershipRole.HOTEL_ADMIN, MembershipRole.HOTEL_STAFF];
@@ -12,7 +13,7 @@ const staffInclude = { membership: staffIdentity, property: { select: { id: true
 
 @Injectable()
 export class StaffService {
-  constructor(private readonly prisma: PrismaService, private readonly notifications: NotificationsService) { }
+  constructor(private readonly prisma: PrismaService, private readonly notifications: NotificationsService, private readonly entitlements: EntitlementsService) { }
 
   async assertHotel(tenantId: string, db: Prisma.TransactionClient = this.prisma) {
     const tenant = await db.tenant.findUnique({ where: { id: tenantId }, select: { type: true } });
@@ -43,6 +44,7 @@ export class StaffService {
   async createForTenant(tenantId: string, input: CreateStaffDto) {
     return this.transaction(async tx => {
       await this.assertHotel(tenantId, tx);
+      await this.entitlements.assertStaffCapacity(tx, tenantId);
       const membership = await tx.membership.findFirst({ where: { id: input.membershipId, tenantId }, include: { tenant: { select: { type: true } } } });
       if (!membership || !hotelRoles.includes(membership.role) || membership.tenant.type !== TenantType.HOTEL) {
         throw new BadRequestException('Staff requires a HOTEL_ADMIN or HOTEL_STAFF membership in this hotel.');
