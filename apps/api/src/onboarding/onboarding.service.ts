@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import { MembershipRole, PlanCode, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateWorkspaceDto, WorkspaceCreatedResponse } from './onboarding.dto';
+import { TRIAL_DAYS } from '../entitlements/entitlements.service';
 
 const scrypt = promisify(nodeScrypt);
 
@@ -22,6 +23,8 @@ export class OnboardingService {
     const slug = input.slug.trim().toLowerCase();
     const plan = input.plan ?? PlanCode.LOBBY;
     const passwordHash = await this.hashPassword(input.password);
+    const trialStartedAt = new Date();
+    const trialEndsAt = new Date(trialStartedAt.getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
 
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -69,6 +72,8 @@ export class OnboardingService {
             tenantId: tenant.id,
             plan,
             status: 'TRIALING',
+            trialStartedAt,
+            trialEndsAt,
           },
         });
 
