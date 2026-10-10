@@ -35,10 +35,10 @@ function fixture() {
     $transaction: jest.fn(),
   };
   db.$transaction.mockImplementation(async callback => callback(db));
-  const readiness = new RoomReadinessService(db as any); const staff = new StaffService(db as any, new NotificationsService(db as any, { emit: jest.fn() } as any));
+  const readiness = new RoomReadinessService(db as any); const staff = new StaffService(db as any, new NotificationsService(db as any, { emit: jest.fn() } as any), { assertStaffCapacity: jest.fn().mockResolvedValue(undefined), assertRoomCapacity: jest.fn().mockResolvedValue(undefined) } as any);
   const housekeeping = new HousekeepingService(db as any, staff, readiness);
   const maintenance = new MaintenanceService(db as any, staff, readiness);
-  const rooms = new RoomsService(db as any, readiness);
+  const rooms = new RoomsService(db as any, readiness, { assertStaffCapacity: jest.fn().mockResolvedValue(undefined), assertRoomCapacity: jest.fn().mockResolvedValue(undefined) } as any);
   const add = (rows: any[], status: string, blocksRoom = true, tenantId = 'hotel-a') => { const row = { id: `${rows === hk ? 'hk' : 'mt'}-${rows.length}`, tenantId, roomId: room.id, propertyId: room.propertyId, status, blocksRoom, assignedStaffId: null }; rows.push(row); return row; };
   return { db, room, hk, mt, add, readiness, housekeeping, maintenance, rooms, reservation };
 }
