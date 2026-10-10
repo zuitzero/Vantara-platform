@@ -262,6 +262,8 @@ model Subscription {
   stripeSubscriptionId String? @unique
   stripeCustomerRequestedAt DateTime?
   checkoutAttempt StripeCheckoutAttempt?
+  trialStartedAt DateTime @default(now())
+  trialEndsAt DateTime
   currentPeriodStart DateTime?
   currentPeriodEnd DateTime?
   cancelAtPeriodEnd Boolean @default(false)

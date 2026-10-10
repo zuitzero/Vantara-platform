@@ -85,7 +85,7 @@ describe('Notification persistence and isolation', () => {
     const f = fixture(); await expect(f.service.listForHotel('hotel-a', 'user-a', role)).rejects.toThrow(ForbiddenException);
   });
   it('derives assignment recipient through the operational profile membership', async () => {
-    const f = fixture(); const staff = new StaffService(f.db as any, f.service);
+    const f = fixture(); const staff = new StaffService(f.db as any, f.service, { assertStaffCapacity: jest.fn().mockResolvedValue(undefined), assertRoomCapacity: jest.fn().mockResolvedValue(undefined) } as any);
     await staff.transaction(async tx => {
       await staff.notifyWork(tx, 'hotel-a', { id: 'work-a', roomId: 'room-a', propertyId: 'property-a', assignedStaffId: 'staff-a', priority: 'NORMAL' }, 'housekeeping', true, false);
       expect(f.gateway.emit).not.toHaveBeenCalled();
@@ -101,14 +101,14 @@ describe('Notification persistence and isolation', () => {
     expect(events[1]).toMatchObject({ tenantId: 'hotel-a', audience: 'GUEST', recipientId: 'guest-a' });
   });
   it('notifies high/urgent maintenance once, while ordinary changes are quiet', async () => {
-    const f = fixture(); const staff = new StaffService(f.db as any, f.service);
+    const f = fixture(); const staff = new StaffService(f.db as any, f.service, { assertStaffCapacity: jest.fn().mockResolvedValue(undefined), assertRoomCapacity: jest.fn().mockResolvedValue(undefined) } as any);
     const work = { id: 'work-a', roomId: 'room-a', propertyId: 'property-a', assignedStaffId: null, priority: 'URGENT' };
     await staff.transaction(tx => staff.notifyWork(tx, 'hotel-a', work, 'maintenance', false, true));
     expect(f.rows[0].severity).toBe('CRITICAL');
     await staff.transaction(tx => staff.notifyWork(tx, 'hotel-a', work, 'maintenance', false, false)); expect(f.rows).toHaveLength(1);
   });
   it('discards realtime from rolled-back attempts and emits only the successful retry', async () => {
-    const f = fixture(); const staff = new StaffService(f.db as any, f.service); let attempt = 0;
+    const f = fixture(); const staff = new StaffService(f.db as any, f.service, { assertStaffCapacity: jest.fn().mockResolvedValue(undefined), assertRoomCapacity: jest.fn().mockResolvedValue(undefined) } as any); let attempt = 0;
     f.db.$transaction.mockImplementation(async callback => {
       const count = f.rows.length; const result = await callback(f.db);
       if (++attempt === 1) { f.rows.splice(count); throw new Prisma.PrismaClientKnownRequestError('retry', { code: 'P2034', clientVersion: '6' }); }
@@ -164,7 +164,7 @@ describe('Central operational audit', () => {
   it('audits OUT_OF_SERVICE lock using server actor in the same transaction', async () => {
     const f = fixture(); const room = { id: 'room-a', outOfServiceLocked: false };
     Object.assign(f.db, { room: { findFirst: jest.fn(async () => ({ ...room })), update: jest.fn(async ({ data }) => Object.assign(room, data)) }, housekeepingTask: { count: jest.fn().mockResolvedValue(0) }, maintenanceTicket: { count: jest.fn().mockResolvedValue(0) } });
-    const rooms = new RoomsService(f.db as any, new RoomReadinessService(f.db as any));
+    const rooms = new RoomsService(f.db as any, new RoomReadinessService(f.db as any), { assertStaffCapacity: jest.fn().mockResolvedValue(undefined), assertRoomCapacity: jest.fn().mockResolvedValue(undefined) } as any);
     await auditActor.run({ userId: 'user-a', tenantId: 'hotel-a' }, () => rooms.updateReadinessForTenant('hotel-a', room.id, RoomReadinessStatus.OUT_OF_SERVICE));
     expect(f.db.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: 'ROOM_OUT_OF_SERVICE_LOCKED', actorUserId: 'user-a', resourceId: room.id }) }));
   });
@@ -179,7 +179,7 @@ describe('Central operational audit', () => {
       housekeepingTask: { findFirst: jest.fn(async () => ({ ...work })), update: jest.fn(async ({ data }) => ({ ...work, ...Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined)) })), count: jest.fn().mockResolvedValue(0) },
       maintenanceTicket: { count: jest.fn().mockResolvedValue(0) },
     });
-    const staff = new StaffService(f.db as any, f.service); const housekeeping = new HousekeepingService(f.db as any, staff, new RoomReadinessService(f.db as any));
+    const staff = new StaffService(f.db as any, f.service, { assertStaffCapacity: jest.fn().mockResolvedValue(undefined), assertRoomCapacity: jest.fn().mockResolvedValue(undefined) } as any); const housekeeping = new HousekeepingService(f.db as any, staff, new RoomReadinessService(f.db as any));
     await auditActor.run({ userId: 'user-a', tenantId: 'hotel-a' }, async () => {
       await housekeeping.updateForTenant('hotel-a', 'work-a', { assignedStaffId: 'staff-a' });
       await staff.updateForTenant('hotel-a', 'staff-a', { operationalStatus: 'INACTIVE' });
