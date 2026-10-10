@@ -17,6 +17,8 @@ export class BillingController {
   subscription(@Req() req: AuthenticatedRequest & TenantScopedRequest) { return this.billing.read(req.auth!.user.id, req.tenantContext!.tenantId); }
   @Post('checkout') @Permissions('billing.manage')
   checkout(@Req() req: AuthenticatedRequest & TenantScopedRequest, @Body() body: CheckoutDto) { return this.billing.checkout(req.auth!.user.id, req.tenantContext!.tenantId, body.plan); }
+  @Post('reconcile') @Permissions('billing.manage')
+  reconcile(@Req() req: AuthenticatedRequest & TenantScopedRequest) { return this.billing.reconcile(req.auth!.user.id, req.tenantContext!.tenantId); }
   @Post('portal') @Permissions('billing.manage')
   portal(@Req() req: AuthenticatedRequest & TenantScopedRequest, @Body() _body: PortalDto) { return this.billing.portal(req.auth!.user.id, req.tenantContext!.tenantId); }
 }
