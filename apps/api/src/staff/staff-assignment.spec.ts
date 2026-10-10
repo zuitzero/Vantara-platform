@@ -32,7 +32,7 @@ function fixture(department: StaffDepartment = StaffDepartment.HOUSEKEEPING) {
     $transaction: jest.fn(),
   };
   db.$transaction.mockImplementation(async callback => callback(db));
-  const staff = new StaffService(db as any, new NotificationsService(db as any, { emit: jest.fn() } as any));
+  const staff = new StaffService(db as any, new NotificationsService(db as any, { emit: jest.fn() } as any), { assertStaffCapacity: jest.fn().mockResolvedValue(undefined) } as any);
   return { db, profile, membership, task, staff };
 }
 
