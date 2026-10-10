@@ -6,10 +6,11 @@ import { Prisma } from '@prisma/client';
 import { RoomOccupancyStatus, RoomReadinessStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateRoomDto } from './rooms.dto';
+import { EntitlementsService } from '../entitlements/entitlements.service';
 
 @Injectable()
 export class RoomsService {
-  constructor(private readonly prisma: PrismaService, private readonly readiness: RoomReadinessService) {}
+  constructor(private readonly prisma: PrismaService, private readonly readiness: RoomReadinessService, private readonly entitlements: EntitlementsService) {}
 
   listForTenant(tenantId: string) {
     return this.prisma.room.findMany({
@@ -30,6 +31,7 @@ export class RoomsService {
   }
 
   async createForTenant(tenantId: string, propertyId: string, input: CreateRoomDto) {
+    await this.entitlements.assertRoomCapacity(this.prisma, tenantId);
     const property = await this.prisma.property.findFirst({ where: { id: propertyId, tenantId, tenant: { type: 'HOTEL' } } });
     if (!property) throw new NotFoundException('Property not found.');
 
