@@ -39,7 +39,9 @@ describe('Safe hotel bootstrap', () => {
     expect(tx.tenant.create).toHaveBeenCalledWith({ data: { name: 'Hotel A', slug: 'hotel-a', type: 'HOTEL' } });
     expect(tx.membership.create).toHaveBeenCalledWith({ data: { userId: 'user-a', tenantId: 'hotel-a', role: 'HOTEL_ADMIN' } });
     expect(tx.property.create).toHaveBeenCalledWith({ data: { tenantId: 'hotel-a', name: 'Main property' } });
-    expect(tx.subscription.create).toHaveBeenCalledWith({ data: { tenantId: 'hotel-a', plan: 'LOBBY', status: 'TRIALING' } });
+    expect(tx.subscription.create).toHaveBeenCalledWith({ data: expect.objectContaining({ tenantId: 'hotel-a', plan: 'LOBBY', status: 'TRIALING', trialStartedAt: expect.any(Date), trialEndsAt: expect.any(Date) }) });
+    const trialData = tx.subscription.create.mock.calls[0][0].data;
+    expect(trialData.trialEndsAt.getTime() - trialData.trialStartedAt.getTime()).toBe(14 * 24 * 60 * 60 * 1000);
     expect(result).not.toHaveProperty('passwordHash'); expect(result).not.toHaveProperty('token');
     expect(db.$transaction).toHaveBeenCalledTimes(1);
   });
