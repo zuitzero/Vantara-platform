@@ -169,6 +169,24 @@ describe('Hotel Stripe billing boundary', () => {
     mapped(); sdk.subscriptions.list.mockResolvedValue({ has_more: false, data: [currentSubscription()] });
     expect((await post('checkout', { plan: 'SUITE' })).status).toBe(409); expect(sdk.checkout.sessions.create).not.toHaveBeenCalled();
   });
+  it('reconciles a missed webhook from authoritative Stripe state', async () => {
+    mapped(); sdk.subscriptions.list.mockResolvedValue({ has_more: false, data: [currentSubscription()] });
+    const response = await post('reconcile', {}); expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({ plan: 'SUITE', status: 'ACTIVE', hasStripeCustomer: true, hasStripeSubscription: true });
+    expect(db.state().subscriptions[0]).toMatchObject({ plan: 'SUITE', status: 'ACTIVE', stripeSubscriptionId: 'sub_hotel-a' });
+    expect(sdk.subscriptions.retrieve).toHaveBeenCalledWith('sub_hotel-a');
+    expect(db.state().audits.some((row: any) => row.action === 'BILLING_CHANGE' && row.metadata.reason === 'STRIPE_RECONCILED')).toBe(true);
+  });
+  it('reconciliation is a no-op when local Stripe linkage is already complete', async () => {
+    mapped(); Object.assign(db.state().subscriptions[0], { stripeSubscriptionId: 'sub_hotel-a', status: 'ACTIVE', plan: 'SUITE' });
+    const response = await post('reconcile', {}); expect(response.status).toBe(201);
+    expect(sdk.subscriptions.list).not.toHaveBeenCalled(); expect(sdk.subscriptions.retrieve).not.toHaveBeenCalled();
+  });
+  it('refuses to guess when Stripe has multiple current subscriptions', async () => {
+    mapped(); sdk.subscriptions.list.mockResolvedValue({ has_more: false, data: [currentSubscription(), { ...currentSubscription(), id: 'sub_second' }] });
+    const response = await post('reconcile', {}); expect(response.status).toBe(409);
+    expect(db.state().subscriptions[0]).toMatchObject({ status: 'TRIALING', stripeSubscriptionId: null }); expect(sdk.subscriptions.retrieve).not.toHaveBeenCalled();
+  });
   it('rejects a foreign existing customer before checkout or portal', async () => {
     mapped(); sdk.customers.retrieve.mockResolvedValue(customer('hotel-b'));
     expect((await post('checkout', { plan: 'SUITE' })).status).toBe(409);
