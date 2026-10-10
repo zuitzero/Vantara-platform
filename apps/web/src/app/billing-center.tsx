@@ -11,7 +11,7 @@ export function BillingCenter({ base, onState }: { base: string; onState: (state
   const load = useCallback(async () => {
     const request = ++generation.current; setLoading(true); setError(null);
     try {
-      const response = await fetch(`${base}/billing/subscription`, { credentials: 'include', cache: 'no-store' }); const data = await response.json();
+      const response = await fetch(`${base}/billing/reconcile`, { method: 'POST', credentials: 'include', cache: 'no-store' }); const data = await response.json();
       if (!response.ok) throw new Error(Array.isArray(data.message) ? data.message.join(' ') : data.message ?? 'Unable to load billing.');
       if (request === generation.current) { setBilling(data); setPlan(data.plan); stateCallback.current(data); }
     } catch (err) { if (request === generation.current) setError(err instanceof Error ? err.message : 'Unable to load billing.'); }
