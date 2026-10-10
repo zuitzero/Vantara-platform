@@ -133,7 +133,7 @@ describe('Minimum operational setup status', () => {
 describe('Existing inventory API setup safety', () => {
   function inventory() {
     const db = { property: { findFirst: jest.fn().mockResolvedValue({ id: 'p' }) }, roomType: { findFirst: jest.fn().mockResolvedValue({ id: 'rt' }), create: jest.fn() }, room: { create: jest.fn() } };
-    return { db, rooms: new RoomsService(db as any, new RoomReadinessService(db as any)), types: new RoomTypesService(db as any) };
+    return { db, rooms: new RoomsService(db as any, new RoomReadinessService(db as any), { assertStaffCapacity: jest.fn().mockResolvedValue(undefined), assertRoomCapacity: jest.fn().mockResolvedValue(undefined) } as any), types: new RoomTypesService(db as any) };
   }
   it('rejects foreign properties for rooms and room types', async () => {
     const { db, rooms, types } = inventory(); db.property.findFirst.mockResolvedValue(null);
