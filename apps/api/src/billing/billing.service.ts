@@ -37,6 +37,10 @@ export class BillingService {
     if (!local) throw new NotFoundException('Hotel subscription not found.');
     return local;
   }
+  private state(local: Subscription) {
+    return { plan: local.plan, status: local.status, currentPeriodStart: local.currentPeriodStart, currentPeriodEnd: local.currentPeriodEnd, cancelAtPeriodEnd: local.cancelAtPeriodEnd,
+      hasStripeCustomer: !!local.stripeCustomerId, hasStripeSubscription: !!local.stripeSubscriptionId };
+  }
   private transaction<T>(operation: (tx: Prisma.TransactionClient) => Promise<T>) {
     return this.prisma.$transaction(operation, { maxWait: 10000, timeout: 60000 });
   }
@@ -48,11 +52,52 @@ export class BillingService {
     return this.transaction(async tx => {
       const local = await this.local(tx, tenantId);
       await auditMutation(tx, tenantId, AuditAction.BILLING_VIEW, 'subscription', local.id);
-      return { plan: local.plan, status: local.status, currentPeriodStart: local.currentPeriodStart, currentPeriodEnd: local.currentPeriodEnd, cancelAtPeriodEnd: local.cancelAtPeriodEnd,
-        hasStripeCustomer: !!local.stripeCustomerId, hasStripeSubscription: !!local.stripeSubscriptionId };
+      return this.state(local);
     });
   }
   private metadata(local: Subscription) { return { vantaraTenantId: local.tenantId, vantaraSubscriptionId: local.id }; }
+  private async applySubscriptionState(tx: Prisma.TransactionClient, local: Subscription, current: Stripe.Subscription) {
+    if (current.livemode || idOf(current.customer) !== local.stripeCustomerId || current.metadata.vantaraTenantId !== local.tenantId || current.metadata.vantaraSubscriptionId !== local.id) {
+      throw new BadRequestException('Foreign Stripe subscription mapping.');
+    }
+    await this.customer(local);
+    if (local.stripeSubscriptionId && local.stripeSubscriptionId !== current.id) throw new BadRequestException('Another Stripe subscription is already linked.');
+    const items = current.items.data;
+    if (current.items.has_more || items.length !== 1 || items[0].quantity !== 1 || items[0].price.livemode) throw new BadRequestException('Unsupported Stripe subscription items.');
+    const prices = this.stripe.prices();
+    const plan = SELF_SERVICE_PLANS.find(plan => prices[plan] === items[0].price.id);
+    if (!plan) throw new BadRequestException('Unknown Stripe subscription price.');
+    const status = stripeStatus(current.status);
+    const start = items[0].current_period_start; const end = items[0].current_period_end;
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start <= 0 || end <= start) throw new BadRequestException('Invalid Stripe billing period.');
+    const data = { stripeSubscriptionId: current.id, plan, status, currentPeriodStart: new Date(start * 1000), currentPeriodEnd: new Date(end * 1000), cancelAtPeriodEnd: current.cancel_at_period_end };
+    const changed = local.stripeSubscriptionId !== current.id || local.plan !== plan || local.status !== status || local.cancelAtPeriodEnd !== data.cancelAtPeriodEnd || local.currentPeriodStart?.getTime() !== data.currentPeriodStart.getTime() || local.currentPeriodEnd?.getTime() !== data.currentPeriodEnd.getTime();
+    if (!changed) return local;
+    const updated = await tx.subscription.update({ where: { id: local.id }, data });
+    await auditMutation(tx, local.tenantId, AuditAction.BILLING_CHANGE, 'subscription', local.id, { plan, previousStatus: local.status, status, cancelAtPeriodEnd: data.cancelAtPeriodEnd, reason: 'STRIPE_RECONCILED' });
+    return updated;
+  }
+  async reconcile(userId: string, tenantId: string) {
+    await this.authorize(userId, tenantId, true);
+    return this.transaction(async tx => {
+      let local = await this.local(tx, tenantId);
+      await this.lock(tx, local.id);
+      local = await this.local(tx, tenantId);
+      if (local.stripeCustomerId && !local.stripeSubscriptionId) {
+        await this.customer(local);
+        const subscriptions = await this.stripe.sdk().subscriptions.list({ customer: local.stripeCustomerId, status: 'all', limit: 100 });
+        if (subscriptions.has_more) throw new ConflictException('Stripe subscription history requires administrator reconciliation.');
+        const candidates = subscriptions.data.filter(subscription => !['canceled', 'incomplete_expired'].includes(subscription.status));
+        if (candidates.length > 1) throw new ConflictException('Multiple current Stripe subscriptions require administrator reconciliation.');
+        if (candidates.length === 1) {
+          const current = await this.stripe.sdk().subscriptions.retrieve(candidates[0].id);
+          local = await this.applySubscriptionState(tx, local, current);
+        }
+      }
+      await auditMutation(tx, tenantId, AuditAction.BILLING_VIEW, 'subscription', local.id);
+      return this.state(local);
+    });
+  }
   private async customer(local: Subscription) {
     if (!local.stripeCustomerId) throw new ConflictException('Hotel has no Stripe customer. Choose a paid plan first.');
     const customer = await this.stripe.sdk().customers.retrieve(local.stripeCustomerId);
@@ -185,24 +230,9 @@ export class BillingService {
         const local = await this.local(tx, mapped.tenantId);
         if (local.stripeCustomerId !== identity.customerId) throw new BadRequestException('Stripe customer mapping changed.');
         const current = await this.stripe.sdk().subscriptions.retrieve(identity.subscriptionId);
-        if (current.livemode || current.id !== identity.subscriptionId || idOf(current.customer) !== local.stripeCustomerId || current.metadata.vantaraTenantId !== local.tenantId || current.metadata.vantaraSubscriptionId !== local.id) throw new BadRequestException('Foreign Stripe subscription mapping.');
+        if (current.id !== identity.subscriptionId) throw new BadRequestException('Stripe subscription identity changed.');
         if (identity.metadata && (identity.metadata.vantaraTenantId !== local.tenantId || identity.metadata.vantaraSubscriptionId !== local.id)) throw new BadRequestException('Foreign Stripe event mapping.');
-        await this.customer(local);
-        if (local.stripeSubscriptionId && local.stripeSubscriptionId !== current.id) throw new BadRequestException('Another Stripe subscription is already linked.');
-        const items = current.items.data;
-        if (current.items.has_more || items.length !== 1 || items[0].quantity !== 1 || items[0].price.livemode) throw new BadRequestException('Unsupported Stripe subscription items.');
-        const prices = this.stripe.prices();
-        const plan = SELF_SERVICE_PLANS.find(plan => prices[plan] === items[0].price.id);
-        if (!plan) throw new BadRequestException('Unknown Stripe subscription price.');
-        const status = stripeStatus(current.status);
-        const start = items[0].current_period_start; const end = items[0].current_period_end;
-        if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start <= 0 || end <= start) throw new BadRequestException('Invalid Stripe billing period.');
-        const data = { stripeSubscriptionId: current.id, plan, status, currentPeriodStart: new Date(start * 1000), currentPeriodEnd: new Date(end * 1000), cancelAtPeriodEnd: current.cancel_at_period_end };
-        const changed = local.stripeSubscriptionId !== current.id || local.plan !== plan || local.status !== status || local.cancelAtPeriodEnd !== data.cancelAtPeriodEnd || local.currentPeriodStart?.getTime() !== data.currentPeriodStart.getTime() || local.currentPeriodEnd?.getTime() !== data.currentPeriodEnd.getTime();
-        if (changed) {
-          await tx.subscription.update({ where: { id: local.id }, data });
-          await auditMutation(tx, local.tenantId, AuditAction.BILLING_CHANGE, 'subscription', local.id, { plan, previousStatus: local.status, status, cancelAtPeriodEnd: data.cancelAtPeriodEnd });
-        }
+        await this.applySubscriptionState(tx, local, current);
         await tx.stripeWebhookEvent.update({ where: { id: record.id }, data: { status: 'PROCESSED', processedAt: new Date(), lastError: null } });
         return { received: true };
       });
