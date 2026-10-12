@@ -169,7 +169,7 @@ export class GuestsService {
         status: 'RECORDED',
         detail: { body: note.body, authorName: note.author?.name ?? null },
       })),
-    ].sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime());
+    ].sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime());
 
     return {
       guest,
