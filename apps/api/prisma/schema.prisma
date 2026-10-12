@@ -226,6 +226,7 @@ model Tenant {
   properties Property[]
   guests Guest[]
   reservations Reservation[]
+  connectAccesses GuestConnectAccess[]
   guestRequests GuestRequest[]
   housekeepingTasks HousekeepingTask[]
   maintenanceTickets MaintenanceTicket[]
@@ -453,14 +454,35 @@ model Reservation {
   guest Guest @relation(fields: [guestId], references: [id], onDelete: Restrict)
   roomType RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Restrict)
   room Room? @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  connectRequests GuestRequest[] @relation("ReservationGuestRequests")
+  connectAccess GuestConnectAccess?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  @@unique([id, tenantId])
   @@unique([tenantId, confirmationCode])
   @@index([tenantId, status])
   @@index([propertyId, checkIn, checkOut])
   @@index([guestId])
   @@index([roomId, checkIn, checkOut])
   @@map("reservations")
+}
+
+
+model GuestConnectAccess {
+  id String @id @default(cuid())
+  tenantId String
+  reservationId String @unique
+  tokenHash String @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  lastUsedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  reservation Reservation @relation(fields: [reservationId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  @@unique([reservationId, tenantId])
+  @@index([tenantId, expiresAt])
+  @@map("guest_connect_access")
 }
 
 model OperationalStaff {
@@ -569,6 +591,7 @@ model GuestRequest {
   propertyId String
   guestId String
   roomId String?
+  reservationId String?
   title String
   message String
   category GuestRequestCategory
@@ -583,7 +606,9 @@ model GuestRequest {
   property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   guest Guest @relation(fields: [guestId], references: [id], onDelete: Cascade)
   room Room? @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  reservation Reservation? @relation("ReservationGuestRequests", fields: [reservationId, tenantId], references: [id, tenantId], onDelete: Restrict)
   @@index([tenantId, status, priority])
+  @@index([reservationId])
   @@index([propertyId, status])
   @@index([guestId, createdAt])
   @@index([roomId, createdAt])

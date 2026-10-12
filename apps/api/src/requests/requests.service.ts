@@ -116,6 +116,61 @@ export class RequestsService {
     return request;
   }
 
+  async createForReservationGuest(tenantId: string, reservationId: string, input: CreateGuestRequestDto) {
+    const reservation = await this.prisma.reservation.findFirst({
+      where: { id: reservationId, tenantId },
+      include: { guest: true, property: true, room: true },
+    });
+    if (!reservation) throw new BadRequestException('Reservation does not belong to the active hotel.');
+    const request = await this.readiness.transaction(async tx => {
+      const created = await tx.guestRequest.create({
+        data: {
+          tenantId,
+          guestId: reservation.guestId,
+          propertyId: reservation.propertyId,
+          reservationId: reservation.id,
+          roomId: reservation.roomId,
+          title: input.title.trim(),
+          message: input.message.trim(),
+          category: input.category,
+          priority: input.priority ?? GuestRequestPriority.NORMAL,
+          guestCount: input.guestCount ?? 1,
+        },
+        include: { guest: true, property: true, room: { include: { roomType: true } } },
+      });
+      if (reservation.roomId && input.category === GuestRequestCategory.HOUSEKEEPING) {
+        const task = await tx.housekeepingTask.create({
+          data: {
+            tenantId, propertyId: reservation.propertyId, roomId: reservation.roomId,
+            title: input.title.trim(), blocksRoom: false,
+            notes: `Guest request ${created.id}: ${input.message.trim()}`,
+            priority: this.toOperationsPriority(input.priority),
+          },
+        });
+        await auditMutation(tx, tenantId, AuditAction.HOUSEKEEPING_CREATED, 'housekeeping', task.id, { roomId: reservation.roomId, blocksRoom: false, reason: 'GUEST_REQUEST' });
+      }
+      if (reservation.roomId && input.category === GuestRequestCategory.MAINTENANCE) {
+        const ticket = await tx.maintenanceTicket.create({
+          data: {
+            tenantId, propertyId: reservation.propertyId, roomId: reservation.roomId,
+            title: input.title.trim(), description: input.message.trim(), blocksRoom: false,
+            priority: this.toOperationsPriority(input.priority),
+          },
+        });
+        await auditMutation(tx, tenantId, AuditAction.MAINTENANCE_CREATED, 'maintenance', ticket.id, { roomId: reservation.roomId, blocksRoom: false, reason: 'GUEST_REQUEST' });
+      }
+      if (reservation.roomId && (input.category === GuestRequestCategory.HOUSEKEEPING || input.category === GuestRequestCategory.MAINTENANCE)) {
+        await this.readiness.recalculate(tx, tenantId, reservation.roomId);
+      }
+      return created;
+    });
+    await Promise.all(guestRequestCreatedEvent({
+      tenantId, guestId: request.guestId, requestId: request.id, roomId: request.roomId,
+      title: request.title, message: request.message, priority: request.priority,
+    }).map(event => this.notifications.publish(event)));
+    return request;
+  }
+
   async updateForTenant(tenantId: string, requestId: string, input: UpdateGuestRequestDto) {
     const current = await this.prisma.guestRequest.findFirst({ where: { id: requestId, tenantId } });
     if (!current) throw new NotFoundException('Guest request not found.');
