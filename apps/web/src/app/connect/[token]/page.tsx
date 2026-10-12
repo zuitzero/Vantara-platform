@@ -88,7 +88,7 @@ export default function ConnectPage() {
       <section className="connect-panel">
         <div className="connect-section-head"><div><span>REQUEST SOMETHING</span><h2>How can the hotel help?</h2></div><small>{activeRequests.length} active</small></div>
         {stay.canRequest ? <div className="connect-form">
-          <label>Request type<select value={category} onChange={event => setCategory(event.target.value)}>{categories.map(item => <option key={item}>{item.replaceAll('_', ' ')}</option>)}</select></label>
+          <label>Request type<select value={category} onChange={event => setCategory(event.target.value)}>{categories.map(item => <option key={item} value={item}>{item.replaceAll('_', ' ')}</option>)}</select></label>
           <label>What do you need?<input value={title} onChange={event => setTitle(event.target.value)} placeholder="Extra towels" maxLength={120} /></label>
           <label>Details<textarea value={message} onChange={event => setMessage(event.target.value)} placeholder="Tell the hotel what would make your stay better…" maxLength={1000} /></label>
           <button disabled={sending || !title.trim() || !message.trim()} onClick={() => void submit()}>{sending ? 'Sending…' : 'Send request'}</button>
