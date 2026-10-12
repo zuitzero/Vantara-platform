@@ -589,6 +589,7 @@ model GuestRequest {
   propertyId String
   guestId String
   roomId String?
+  reservationId String?
   title String
   message String
   category GuestRequestCategory
@@ -603,7 +604,9 @@ model GuestRequest {
   property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   guest Guest @relation(fields: [guestId], references: [id], onDelete: Cascade)
   room Room? @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  reservation Reservation? @relation("ReservationGuestRequests", fields: [reservationId, tenantId], references: [id, tenantId], onDelete: SetNull)
   @@index([tenantId, status, priority])
+  @@index([reservationId])
   @@index([propertyId, status])
   @@index([guestId, createdAt])
   @@index([roomId, createdAt])
