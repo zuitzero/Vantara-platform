@@ -1,5 +1,11 @@
 CREATE UNIQUE INDEX "reservations_id_tenantId_key" ON "reservations"("id", "tenantId");
 
+ALTER TABLE "guest_requests" ADD COLUMN "reservationId" TEXT;
+CREATE INDEX "guest_requests_reservationId_idx" ON "guest_requests"("reservationId");
+ALTER TABLE "guest_requests"
+  ADD CONSTRAINT "guest_requests_reservationId_tenantId_fkey"
+  FOREIGN KEY ("reservationId", "tenantId") REFERENCES "reservations"("id", "tenantId") ON DELETE RESTRICT ON UPDATE CASCADE;
+
 CREATE TABLE "guest_connect_access" (
   "id" TEXT NOT NULL,
   "tenantId" TEXT NOT NULL,
