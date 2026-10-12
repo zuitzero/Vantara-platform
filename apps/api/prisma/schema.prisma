@@ -383,6 +383,7 @@ model Guest {
   crmNotes GuestNote[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  @@unique([id, tenantId])
   @@index([tenantId, status])
   @@index([propertyId])
   @@index([roomId])
@@ -397,7 +398,7 @@ model GuestPreference {
   guestId String
   key String
   value String
-  guest Guest @relation(fields: [guestId], references: [id], onDelete: Cascade)
+  guest Guest @relation(fields: [guestId, tenantId], references: [id, tenantId], onDelete: Cascade)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@unique([guestId, key])
