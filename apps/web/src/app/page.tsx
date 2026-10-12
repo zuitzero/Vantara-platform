@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { BillingCenter } from './billing-center';
+import { CrmCenter } from './crm-center';
 import { AuditCenter } from './audit-center';
 import { Overview } from './overview';
 import { RequestsCenter } from './requests-center';
@@ -39,7 +40,7 @@ const nav: NavItem[] = [
   { label: 'Maintenance', glyph: '◇', live: true },
   { label: 'Activity', glyph: '◷', adminOnly: true, live: true },
   { label: 'Staff', glyph: '◫', adminOnly: true, live: true },
-  { label: 'CRM', glyph: '◌', adminOnly: true },
+  { label: 'CRM', glyph: '◌', adminOnly: true, live: true },
   { label: 'Billing', glyph: '$', adminOnly: true, live: true },
   { label: 'Settings', glyph: '⚙', adminOnly: true },
 ];
@@ -133,6 +134,7 @@ export default function Home() {
   if (active === 'Billing' && isHotelAdmin) content = <BillingCenter base={base} onState={subscription => setWorkspace(current => current ? { ...current, subscription } : current)} />;
   if (active === 'Activity' && isHotelAdmin) content = <AuditCenter base={base} />;
   if (active === 'Staff' && isHotelAdmin) content = <StaffCenter base={base} />;
+  if (active === 'CRM' && isHotelAdmin) content = <CrmCenter base={base} />;
   if (active === 'Housekeeping') content = <OperationsCenter key="housekeeping" base={base} mode="housekeeping" canManage={isHotelRole} />;
   if (active === 'Maintenance') content = <OperationsCenter key="maintenance" base={base} mode="maintenance" canManage={isHotelRole} />;
 

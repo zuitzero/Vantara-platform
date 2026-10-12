@@ -81,3 +81,86 @@ describe('Guests / Front Desk read contract', () => {
     await expect(new PermissionsGuard(new Reflector(), rbac, { record: jest.fn() } as any).canActivate(context)).rejects.toThrow('Tenant access denied');
   });
 });
+
+
+describe('Guest CRM foundation', () => {
+  function crmDb() {
+    const guest = { id: 'guest-a', tenantId: 'hotel-a', firstName: 'Ana', lastName: 'Lopez', email: 'ana@example.com', phone: null, status: 'ACTIVE', createdAt: new Date('2026-01-01T00:00:00Z'), updatedAt: new Date('2026-01-01T00:00:00Z') };
+    const db: any = {
+      guest: { findFirst: jest.fn().mockResolvedValue(guest) },
+      guestPreference: {
+        findMany: jest.fn().mockResolvedValue([{ id: 'pref-a', key: 'pillow', value: 'firm', updatedAt: new Date('2026-10-01T00:00:00Z') }]),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+        createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      guestTag: {
+        findMany: jest.fn().mockResolvedValue([{ id: 'tag-a', label: 'VIP', createdAt: new Date('2026-10-01T00:00:00Z') }]),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+        createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      guestNote: {
+        findMany: jest.fn().mockResolvedValue([{ id: 'note-a', body: 'Prefers quiet floors.', createdAt: new Date('2026-10-05T00:00:00Z'), author: { name: 'Manager' } }]),
+        create: jest.fn().mockImplementation(async ({ data }: any) => ({ id: 'note-b', body: data.body, createdAt: new Date('2026-10-06T00:00:00Z'), author: { name: 'Manager' } })),
+      },
+      reservation: {
+        findMany: jest.fn().mockResolvedValue([{ id: 'res-a', confirmationCode: 'VAN-100', status: 'CHECKED_OUT', checkIn: new Date('2026-09-01T00:00:00Z'), checkOut: new Date('2026-09-03T00:00:00Z'), property: { id: 'prop-a', name: 'Hotel A' }, room: { id: 'room-a', number: '101' }, roomType: { id: 'type-a', name: 'King' }, createdAt: new Date('2026-08-01T00:00:00Z') }]),
+      },
+      guestRequest: {
+        findMany: jest.fn().mockResolvedValue([{ id: 'req-a', title: 'Extra towels', category: 'AMENITIES', priority: 'NORMAL', status: 'COMPLETED', createdAt: new Date('2026-09-02T00:00:00Z'), completedAt: new Date('2026-09-02T01:00:00Z'), property: { id: 'prop-a', name: 'Hotel A' }, room: { id: 'room-a', number: '101' } }]),
+      },
+      auditLog: { create: jest.fn().mockResolvedValue({}) },
+      $transaction: jest.fn(async (callback: any) => callback(db)),
+    };
+    return { db, guest };
+  }
+
+  it('returns tenant-scoped guest memory and consolidated timeline', async () => {
+    const { db } = crmDb();
+    const service = new GuestsService(db);
+    const result = await service.getCrmForTenant('hotel-a', 'guest-a');
+    expect(result.metrics).toEqual({ reservations: 1, completedStays: 1, requests: 1, completedRequests: 1 });
+    expect(result.timeline.map(item => item.type)).toEqual(['NOTE', 'REQUEST', 'RESERVATION']);
+    expect(db.guestPreference.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: 'hotel-a', guestId: 'guest-a' } }));
+    expect(db.guestRequest.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: 'hotel-a', guestId: 'guest-a' } }));
+  });
+
+  it('replaces only CRM tags/preferences and audits the mutation', async () => {
+    const { db } = crmDb();
+    const service = new GuestsService(db);
+    await service.updateCrmForTenant('hotel-a', 'guest-a', {
+      tags: [' VIP ', 'VIP', 'Repeat guest'],
+      preferences: [{ key: ' Pillow ', value: ' Firm ' }, { key: 'pillow', value: 'Soft' }],
+    });
+    expect(db.guestTag.deleteMany).toHaveBeenCalledWith({ where: { tenantId: 'hotel-a', guestId: 'guest-a' } });
+    expect(db.guestTag.createMany).toHaveBeenCalledWith({ data: [
+      { tenantId: 'hotel-a', guestId: 'guest-a', label: 'VIP' },
+      { tenantId: 'hotel-a', guestId: 'guest-a', label: 'Repeat guest' },
+    ] });
+    expect(db.guestPreference.createMany).toHaveBeenCalledWith({ data: [
+      { tenantId: 'hotel-a', guestId: 'guest-a', key: 'pillow', value: 'Soft' },
+    ] });
+  });
+
+  it('rejects cross-tenant CRM mutation before writes', async () => {
+    const { db } = crmDb();
+    db.guest.findFirst.mockResolvedValue(null);
+    const service = new GuestsService(db);
+    await expect(service.updateCrmForTenant('hotel-a', 'guest-b', { tags: ['VIP'] })).rejects.toThrow(NotFoundException);
+    expect(db.guestTag.deleteMany).not.toHaveBeenCalled();
+    expect(db.guestPreference.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('adds an immutable tenant-scoped CRM note with the authenticated author', async () => {
+    const { db } = crmDb();
+    const service = new GuestsService(db);
+    const note = await service.addCrmNoteForTenant('hotel-a', 'guest-a', 'user-a', { body: '  Arrives late.  ' });
+    expect(note.body).toBe('Arrives late.');
+    expect(db.guestNote.create).toHaveBeenCalledWith(expect.objectContaining({ data: { tenantId: 'hotel-a', guestId: 'guest-a', authorUserId: 'user-a', body: 'Arrives late.' } }));
+  });
+
+  it('keeps CRM read/manage permissions explicit on controller routes', () => {
+    expect(Reflect.getMetadata(PERMISSIONS_KEY, GuestsController.prototype.crm)).toEqual(['guests.read']);
+    expect(Reflect.getMetadata(PERMISSIONS_KEY, GuestsController.prototype.updateCrm)).toEqual(['guests.manage']);
+    expect(Reflect.getMetadata(PERMISSIONS_KEY, GuestsController.prototype.addCrmNote)).toEqual(['guests.manage']);
+  });
+});
