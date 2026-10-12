@@ -604,7 +604,7 @@ model GuestRequest {
   property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   guest Guest @relation(fields: [guestId], references: [id], onDelete: Cascade)
   room Room? @relation(fields: [roomId], references: [id], onDelete: SetNull)
-  reservation Reservation? @relation("ReservationGuestRequests", fields: [reservationId, tenantId], references: [id, tenantId], onDelete: SetNull)
+  reservation Reservation? @relation("ReservationGuestRequests", fields: [reservationId, tenantId], references: [id, tenantId], onDelete: Restrict)
   @@index([tenantId, status, priority])
   @@index([reservationId])
   @@index([propertyId, status])
