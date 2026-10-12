@@ -128,6 +128,7 @@ export class RequestsService {
           tenantId,
           guestId: reservation.guestId,
           propertyId: reservation.propertyId,
+          reservationId: reservation.id,
           roomId: reservation.roomId,
           title: input.title.trim(),
           message: input.message.trim(),
