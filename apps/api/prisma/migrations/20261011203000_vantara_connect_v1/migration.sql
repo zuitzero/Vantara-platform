@@ -21,6 +21,7 @@ CREATE TABLE "guest_connect_access" (
 
 CREATE UNIQUE INDEX "guest_connect_access_reservationId_key" ON "guest_connect_access"("reservationId");
 CREATE UNIQUE INDEX "guest_connect_access_tokenHash_key" ON "guest_connect_access"("tokenHash");
+CREATE UNIQUE INDEX "guest_connect_access_reservationId_tenantId_key" ON "guest_connect_access"("reservationId", "tenantId");
 CREATE INDEX "guest_connect_access_tenantId_expiresAt_idx" ON "guest_connect_access"("tenantId", "expiresAt");
 
 ALTER TABLE "guest_connect_access"
