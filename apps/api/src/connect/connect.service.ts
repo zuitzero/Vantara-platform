@@ -5,7 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RequestsService } from '../requests/requests.service';
 import { CreateConnectRequestDto } from './connect.dto';
 
-const REQUESTABLE = [ReservationStatus.CONFIRMED, ReservationStatus.CHECKED_IN];
+const REQUESTABLE: ReservationStatus[] = [ReservationStatus.CONFIRMED, ReservationStatus.CHECKED_IN];
 
 @Injectable()
 export class ConnectService {
