@@ -454,6 +454,7 @@ model Reservation {
   guest Guest @relation(fields: [guestId], references: [id], onDelete: Restrict)
   roomType RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Restrict)
   room Room? @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  connectRequests GuestRequest[] @relation("ReservationGuestRequests")
   connectAccess GuestConnectAccess?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
