@@ -62,7 +62,7 @@ export class ConnectService {
     const access = await this.access(token);
     const r = access.reservation;
     const requests = await this.prisma.guestRequest.findMany({
-      where: { tenantId: access.tenantId, guestId: r.guestId, createdAt: { gte: new Date(r.checkIn.getTime() - 24 * 60 * 60 * 1000) } },
+      where: { tenantId: access.tenantId, reservationId: r.id },
       select: { id: true, title: true, message: true, category: true, priority: true, status: true, createdAt: true, completedAt: true, resolutionNote: true },
       orderBy: { createdAt: 'desc' },
       take: 50,
