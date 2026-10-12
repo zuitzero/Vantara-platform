@@ -30,6 +30,7 @@ export function ReservationsCenter({ base, canManage, initialGuestId, onGuestCon
   const [loadError, setLoadError] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
   const [updating, setUpdating] = useState<string | null>(null);
+  const [connectLink, setConnectLink] = useState<{ reservationId: string; url: string } | null>(null);
   const busy = useRef(false);
   const generation = useRef(0);
   const load = useCallback(async () => {
@@ -70,6 +71,23 @@ export function ReservationsCenter({ base, canManage, initialGuestId, onGuestCon
       setMutationError(error instanceof Error ? error.message : 'Reservation update failed.');
     } finally { busy.current = false; setUpdating(null); }
   };
+  const createConnectLink = async (reservation: Reservation) => {
+    if (!canManage || busy.current) return;
+    busy.current = true; setUpdating(reservation.id); setMutationError(null);
+    try {
+      const response = await fetch(`${base}/connect-admin/reservations/${encodeURIComponent(reservation.id)}/access`, {
+        method: 'POST', credentials: 'include',
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(typeof data?.message === 'string' ? data.message : 'Unable to create Connect link.');
+      const url = new URL(data.path, window.location.origin).toString();
+      setConnectLink({ reservationId: reservation.id, url });
+      await navigator.clipboard?.writeText(url).catch(() => undefined);
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : 'Unable to create Connect link.');
+    } finally { busy.current = false; setUpdating(null); }
+  };
+
   const visible = reservations.filter(item => filter === 'ALL' || item.status === filter);
   return <section className="reservations-center" aria-busy={loading}>
     <div className="requests-hero"><div><span className="panel-kicker">HOTEL OPERATIONS / STAYS</span><h2>Reservations</h2><p>Tenant-scoped stays and arrivals, with lifecycle updates managed by Vantara.</p></div>
@@ -92,6 +110,8 @@ export function ReservationsCenter({ base, canManage, initialGuestId, onGuestCon
         </div><div className="request-card-side"><span className={`request-status ${reservation.status.toLowerCase()}`}>{label(reservation.status)}</span>
           {canManage && ['PENDING', 'CONFIRMED'].includes(reservation.status) && <button className="advance-button" disabled={!!updating} onClick={() => setAssigning(reservation)}>{reservation.room ? 'Change room' : 'Assign room'}</button>}
           {canManage ? (actions[reservation.status] ?? []).map(action => <button className="advance-button" key={action.status} disabled={!!updating || ((action.status === 'CHECKED_IN' || action.status === 'CHECKED_OUT') && !reservation.room)} onClick={() => void transition(reservation, action.status)}>{updating === reservation.id ? 'Updating…' : action.label}</button>) : <span className="completed-label">Read only</span>}
+          {canManage && ['CONFIRMED', 'CHECKED_IN'].includes(reservation.status) && <button className="refresh-button" disabled={!!updating} onClick={() => void createConnectLink(reservation)}>{updating === reservation.id ? 'Generating…' : 'Generate Connect link'}</button>}
+          {connectLink?.reservationId === reservation.id && <div className="connect-link-box"><small>Guest link copied when permitted.</small><a href={connectLink.url} target="_blank" rel="noreferrer">Open guest portal →</a><input readOnly value={connectLink.url} onFocus={event => event.currentTarget.select()} /></div>}
           {canManage && !reservation.room && ['CONFIRMED', 'CHECKED_IN'].includes(reservation.status) && <small>A room assignment is required.</small>}
         </div></article>)}</div>}
   </section>;
