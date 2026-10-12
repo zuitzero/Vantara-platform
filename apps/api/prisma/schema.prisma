@@ -210,6 +210,7 @@ model User {
   sessions Session[]
   notificationReads NotificationRead[]
   auditLogs AuditLog[]
+  guestNotes GuestNote[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@map("users")
@@ -377,6 +378,9 @@ model Guest {
   room Room? @relation(fields: [roomId], references: [id], onDelete: SetNull)
   reservations Reservation[]
   guestRequests GuestRequest[]
+  preferences GuestPreference[]
+  tags GuestTag[]
+  crmNotes GuestNote[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@index([tenantId, status])
@@ -384,6 +388,47 @@ model Guest {
   @@index([roomId])
   @@index([tenantId, email])
   @@map("guests")
+}
+
+
+model GuestPreference {
+  id String @id @default(cuid())
+  tenantId String
+  guestId String
+  key String
+  value String
+  guest Guest @relation(fields: [guestId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([guestId, key])
+  @@index([tenantId, guestId])
+  @@map("guest_preferences")
+}
+
+model GuestTag {
+  id String @id @default(cuid())
+  tenantId String
+  guestId String
+  label String
+  guest Guest @relation(fields: [guestId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  @@unique([guestId, label])
+  @@index([tenantId, guestId])
+  @@map("guest_tags")
+}
+
+model GuestNote {
+  id String @id @default(cuid())
+  tenantId String
+  guestId String
+  authorUserId String?
+  body String
+  guest Guest @relation(fields: [guestId], references: [id], onDelete: Cascade)
+  author User? @relation(fields: [authorUserId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+  @@index([tenantId, guestId, createdAt])
+  @@index([authorUserId])
+  @@map("guest_notes")
 }
 
 model Reservation {
