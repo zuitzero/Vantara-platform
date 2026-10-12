@@ -480,6 +480,7 @@ model GuestConnectAccess {
   updatedAt DateTime @updatedAt
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   reservation Reservation @relation(fields: [reservationId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  @@unique([reservationId, tenantId])
   @@index([tenantId, expiresAt])
   @@map("guest_connect_access")
 }
