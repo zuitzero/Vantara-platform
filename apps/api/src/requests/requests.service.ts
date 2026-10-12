@@ -159,7 +159,7 @@ export class RequestsService {
         });
         await auditMutation(tx, tenantId, AuditAction.MAINTENANCE_CREATED, 'maintenance', ticket.id, { roomId: reservation.roomId, blocksRoom: false, reason: 'GUEST_REQUEST' });
       }
-      if (reservation.roomId && [GuestRequestCategory.HOUSEKEEPING, GuestRequestCategory.MAINTENANCE].includes(input.category)) {
+      if (reservation.roomId && (input.category === GuestRequestCategory.HOUSEKEEPING || input.category === GuestRequestCategory.MAINTENANCE)) {
         await this.readiness.recalculate(tx, tenantId, reservation.roomId);
       }
       return created;
