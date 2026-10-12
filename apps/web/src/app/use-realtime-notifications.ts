@@ -9,6 +9,7 @@ export type RealtimeNotification = {
   title: string;
   message: string;
   type: string;
+  metadata?: { requestId?: unknown } | null;
   createdAt?: string;
   readAt?: string | null;
 };

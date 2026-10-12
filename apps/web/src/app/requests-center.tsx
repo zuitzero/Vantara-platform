@@ -21,7 +21,7 @@ const nextStatus: Partial<Record<RequestItem['status'], RequestItem['status']>> 
   IN_PROGRESS: 'COMPLETED',
 };
 
-export function RequestsCenter() {
+export function RequestsCenter({ focusedRequestId, onFocusConsumed }: { focusedRequestId?: string | null; onFocusConsumed?: () => void }) {
   const [requests, setRequests] = useState<RequestItem[]>([]);
   const [filter, setFilter] = useState<(typeof statuses)[number]>('ALL');
   const [loading, setLoading] = useState(true);
@@ -45,6 +45,13 @@ export function RequestsCenter() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { if (focusedRequestId) { setFilter('ALL'); void load(); } }, [focusedRequestId, load]);
+  useEffect(() => {
+    if (!focusedRequestId || loading) return;
+    const target = document.getElementById(`request-${focusedRequestId}`);
+    if (target) { target.scrollIntoView({ behavior: 'smooth', block: 'center' }); target.focus(); }
+    onFocusConsumed?.();
+  }, [focusedRequestId, loading, requests, onFocusConsumed]);
 
   const updateStatus = async (request: RequestItem) => {
     const status = nextStatus[request.status];
@@ -106,7 +113,7 @@ export function RequestsCenter() {
         <div className="request-empty"><span className="empty-mark">✓</span><strong>No requests in this view</strong><span>The queue is clear for this status filter.</span></div>
       ) : (
         <div className="request-list">
-          {visible.map((request) => <RequestCard key={request.id} request={request} updating={updating === request.id} onAdvance={updateStatus} />)}
+          {visible.map((request) => <RequestCard key={request.id} request={request} highlighted={focusedRequestId === request.id} updating={updating === request.id} onAdvance={updateStatus} />)}
         </div>
       )}
     </section>
@@ -117,13 +124,13 @@ function Stat({ label, value, tone = '' }: { label: string; value: string; tone?
   return <div className={`request-stat ${tone}`}><span>{label}</span><strong>{value}</strong></div>;
 }
 
-function RequestCard({ request, updating, onAdvance }: { request: RequestItem; updating: boolean; onAdvance: (request: RequestItem) => void }) {
+function RequestCard({ request, updating, highlighted, onAdvance }: { request: RequestItem; updating: boolean; highlighted: boolean; onAdvance: (request: RequestItem) => void }) {
   const guestName = request.guest?.name ?? ([request.guest?.firstName, request.guest?.lastName].filter(Boolean).join(' ') || 'Guest');
   const room = request.room?.number ?? request.room?.name ?? 'Unassigned';
   const next = nextStatus[request.status];
   const age = formatAge(request.createdAt);
   return (
-    <article className={`request-card priority-${request.priority.toLowerCase()}`}>
+    <article id={`request-${request.id}`} tabIndex={-1} className={`request-card priority-${request.priority.toLowerCase()} ${highlighted ? 'request-highlighted' : ''}`}>
       <div className="request-card-main">
         <div className="request-card-top">
           <span className={`request-priority ${request.priority.toLowerCase()}`}>{request.priority}</span>

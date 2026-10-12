@@ -54,6 +54,8 @@ export default function Home() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [livePulse, setLivePulse] = useState(false);
+  const [toast, setToast] = useState<Notification | null>(null);
+  const [focusedRequestId, setFocusedRequestId] = useState<string | null>(null);
   const base = process.env.NEXT_PUBLIC_API_URL ?? '/api';
 
   useEffect(() => {
@@ -83,6 +85,7 @@ export default function Home() {
     };
     setNotifications((current) => [notification, ...current.filter((item) => item.id !== notification.id)].slice(0, 50));
     setLivePulse(true);
+    setToast(notification);
     window.setTimeout(() => setLivePulse(false), 1400);
   }, []);
 
@@ -91,6 +94,22 @@ export default function Home() {
   const markRead = async (id: string) => {
     const response = await fetch(`${base}/notifications/${id}/read`, { method: 'PATCH', credentials: 'include' });
     if (response.ok) setNotifications((current) => current.filter((notification) => notification.id !== id));
+  };
+
+  const requestIdFor = (notification: Notification) => {
+    if (notification.type !== 'guest_request.created') return null;
+    const id = notification.metadata?.requestId;
+    return typeof id === 'string' && id.length > 0 ? id : null;
+  };
+  const openNotification = async (notification: Notification) => {
+    const requestId = requestIdFor(notification);
+    if (requestId) {
+      setFocusedRequestId(requestId);
+      setActive('Requests');
+    }
+    setShowNotifications(false);
+    setToast(null);
+    try { await markRead(notification.id); } catch { /* Keep unread on network failure. */ }
   };
 
   const name = workspace?.user.name ?? 'Workspace';
@@ -129,7 +148,7 @@ export default function Home() {
   let content = <Overview base={base} />;
   if (active === 'Guests') content = <GuestsCenter base={base} canManage={isHotelAdmin} onReserve={guestId => { setReservationGuestId(guestId); setActive('Reservations'); }} />;
   if (active === 'Reservations') content = <ReservationsCenter base={base} canManage={isHotelAdmin} initialGuestId={reservationGuestId} onGuestConsumed={() => setReservationGuestId(null)} />;
-  if (active === 'Requests') content = <RequestsCenter />;
+  if (active === 'Requests') content = <RequestsCenter focusedRequestId={focusedRequestId} onFocusConsumed={() => setFocusedRequestId(null)} />;
   if (active === 'Rooms') content = <RoomsCenter base={base} canManage={isHotelAdmin} />;
   if (active === 'Billing' && isHotelAdmin) content = <BillingCenter base={base} onState={subscription => setWorkspace(current => current ? { ...current, subscription } : current)} />;
   if (active === 'Activity' && isHotelAdmin) content = <AuditCenter base={base} />;
@@ -152,9 +171,16 @@ export default function Home() {
     <section className="main">
       <header className="topbar">
         <div><div className="breadcrumb">VANTARA / HOTEL COMMAND CENTER / {active.toUpperCase()}</div><h1>{greeting}, {name.split(' ')[0]}.</h1><p>Live operational view of {hotel}.</p></div>
-        <div className="topbar-actions"><div className="environment live-environment"><span /> LIVE TENANT</div><button className={`notification-button ${livePulse ? 'live-pulse' : ''}`} onClick={() => setShowNotifications(!showNotifications)} aria-label="Notifications">◌{notifications.length > 0 && <b>{notifications.length}</b>}</button>{showNotifications && <div className="notification-popover"><div className="popover-head"><strong>Notifications</strong><span>{notifications.length} unread</span></div>{notifications.length === 0 ? <div className="empty-notifications">No unread notifications.</div> : notifications.slice(0, 5).map((notification) => <button className={`notification-item ${notification.severity.toLowerCase()}`} key={notification.id} onClick={() => markRead(notification.id)}><span className="notification-pulse" /><div><strong>{notification.title}</strong><p>{notification.message}</p></div></button>)}</div>}</div>
+        <div className="topbar-actions"><div className="environment live-environment"><span /> LIVE TENANT</div><button className={`notification-button ${livePulse ? 'live-pulse' : ''}`} onClick={() => setShowNotifications(!showNotifications)} aria-label="Notifications">◌{notifications.length > 0 && <b>{notifications.length}</b>}</button>{showNotifications && <div className="notification-popover"><div className="popover-head"><strong>Notifications</strong><span>{notifications.length} unread</span></div>{notifications.length === 0 ? <div className="empty-notifications">No unread notifications.</div> : notifications.slice(0, 5).map((notification) => <button className={`notification-item ${notification.severity.toLowerCase()}`} key={notification.id} onClick={() => void openNotification(notification)}><span className="notification-pulse" /><div><strong>{notification.title}</strong><p>{notification.message}</p></div></button>)}</div>}</div>
       </header>
       {content}
+      {toast && <div className="notification-toast" role="status" aria-live="polite">
+        <div><strong>{toast.title}</strong><p>{toast.message}</p></div>
+        <div className="notification-toast-actions">
+          {requestIdFor(toast) && <button onClick={() => void openNotification(toast)}>View request</button>}
+          <button aria-label="Dismiss notification" onClick={() => setToast(null)}>Dismiss</button>
+        </div>
+      </div>}
     </section>
   </main>;
 }
