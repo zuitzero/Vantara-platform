@@ -226,6 +226,7 @@ model Tenant {
   properties Property[]
   guests Guest[]
   reservations Reservation[]
+  connectAccesses GuestConnectAccess[]
   guestRequests GuestRequest[]
   housekeepingTasks HousekeepingTask[]
   maintenanceTickets MaintenanceTicket[]
@@ -455,12 +456,30 @@ model Reservation {
   room Room? @relation(fields: [roomId], references: [id], onDelete: SetNull)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  @@unique([id, tenantId])
   @@unique([tenantId, confirmationCode])
   @@index([tenantId, status])
   @@index([propertyId, checkIn, checkOut])
   @@index([guestId])
   @@index([roomId, checkIn, checkOut])
   @@map("reservations")
+}
+
+
+model GuestConnectAccess {
+  id String @id @default(cuid())
+  tenantId String
+  reservationId String @unique
+  tokenHash String @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  lastUsedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  reservation Reservation @relation(fields: [reservationId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  @@index([tenantId, expiresAt])
+  @@map("guest_connect_access")
 }
 
 model OperationalStaff {
