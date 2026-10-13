@@ -84,7 +84,7 @@ export function RequestsCenter({ focusedRequestId, onFocusConsumed }: { focusedR
 
   const visible = useMemo(() => filter === 'ALL' ? requests : filter === 'OPEN' ? requests.filter((item) => isOpen(item.status)) : requests.filter((item) => item.status === filter), [filter, requests]);
   const open = requests.filter((item) => isOpen(item.status)).length;
-  const urgent = requests.filter((item) => item.priority === 'URGENT' && !['COMPLETED', 'CANCELLED'].includes(item.status)).length;
+  const urgent = requests.filter((item) => item.priority === 'URGENT' && isOpen(item.status)).length;
 
   return (
     <section className="requests-center">
@@ -120,7 +120,7 @@ export function RequestsCenter({ focusedRequestId, onFocusConsumed }: { focusedR
         <div className="request-empty"><span className="empty-mark">✓</span><strong>No requests in this view</strong><span>The queue is clear for this status filter.</span></div>
       ) : (
         <div className="request-list">
-          {visible.map((request) => <RequestCard key={request.id} request={request} highlighted={focusedRequestId === request.id} updating={!!updating} onAdvance={updateStatus} />)}
+          {visible.map((request) => <RequestCard key={request.id} request={request} highlighted={focusedRequestId === request.id} updating={!!updating} isUpdatingThis={updating === request.id} onAdvance={updateStatus} />)}
         </div>
       )}
     </section>
@@ -131,7 +131,7 @@ function Stat({ label, value, tone = '' }: { label: string; value: string; tone?
   return <div className={`request-stat ${tone}`}><span>{label}</span><strong>{value}</strong></div>;
 }
 
-function RequestCard({ request, updating, highlighted, onAdvance }: { request: RequestItem; updating: boolean; highlighted: boolean; onAdvance: (request: RequestItem) => void }) {
+function RequestCard({ request, updating, isUpdatingThis, highlighted, onAdvance }: { request: RequestItem; updating: boolean; isUpdatingThis: boolean; highlighted: boolean; onAdvance: (request: RequestItem) => void }) {
   const guestName = request.guest?.name ?? ([request.guest?.firstName, request.guest?.lastName].filter(Boolean).join(' ') || 'Guest');
   const room = request.room?.number ?? request.room?.name ?? 'Unassigned';
   const next = nextStatus[request.status];
@@ -149,7 +149,7 @@ function RequestCard({ request, updating, highlighted, onAdvance }: { request: R
       </div>
       <div className="request-card-side">
         <span className={`request-status ${request.status.toLowerCase()}`}><i /> {request.status.replace('_', ' ')}</span>
-        {next ? <button className="advance-button" onClick={() => onAdvance(request)} disabled={updating}>{updating ? 'Updating...' : actionLabels[request.status]}</button> : <span className="completed-label">✓ {request.status === 'COMPLETED' ? 'Completed' : 'Cancelled'}</span>}
+        {next ? <button className="advance-button" onClick={() => onAdvance(request)} disabled={updating}>{isUpdatingThis ? 'Updating...' : actionLabels[request.status]}</button> : <span className="completed-label">✓ {request.status === 'COMPLETED' ? 'Completed' : 'Cancelled'}</span>}
       </div>
     </article>
   );
