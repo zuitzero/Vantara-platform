@@ -19,7 +19,18 @@ type Stay = {
   canRequest: boolean;
 };
 
-const categories = ['HOUSEKEEPING', 'ROOM_SERVICE', 'MAINTENANCE', 'CONCIERGE', 'FRONT_DESK', 'AMENITIES', 'OTHER'];
+const quickActions = [
+  { label: 'My room', description: 'Cleaning, towels or repairs', category: 'HOUSEKEEPING' },
+  { label: 'Food & drinks', description: 'Room service', category: 'ROOM_SERVICE' },
+  { label: 'Explore & enjoy', description: 'Amenities and recommendations', category: 'AMENITIES' },
+  { label: 'Need help?', description: 'Front desk and other requests', category: 'FRONT_DESK' },
+] as const;
+const categoryOptions: Record<string, { value: string; label: string }[]> = {
+  HOUSEKEEPING: [{ value: 'HOUSEKEEPING', label: 'Cleaning or towels' }, { value: 'MAINTENANCE', label: 'Something needs fixing' }],
+  ROOM_SERVICE: [{ value: 'ROOM_SERVICE', label: 'Food or drinks' }],
+  AMENITIES: [{ value: 'AMENITIES', label: 'Hotel amenities' }, { value: 'CONCIERGE', label: 'Recommendations and activities' }],
+  FRONT_DESK: [{ value: 'FRONT_DESK', label: 'Front desk' }, { value: 'OTHER', label: 'Something else' }],
+};
 const formatDate = (value: string) => new Intl.DateTimeFormat('en', { dateStyle: 'medium' }).format(new Date(value));
 
 export default function ConnectPage() {
@@ -30,7 +41,9 @@ export default function ConnectPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
-  const [category, setCategory] = useState('AMENITIES');
+  const [group, setGroup] = useState('HOUSEKEEPING');
+  const [category, setCategory] = useState('HOUSEKEEPING');
+  const [success, setSuccess] = useState(false);
   const [title, setTitle] = useState('');
   const [message, setMessage] = useState('');
 
@@ -50,7 +63,7 @@ export default function ConnectPage() {
 
   const submit = async () => {
     if (!title.trim() || !message.trim()) return;
-    setSending(true); setError(null);
+    setSending(true); setError(null); setSuccess(false);
     try {
       const response = await fetch(`${base}/connect/${encodeURIComponent(token)}/requests`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -60,6 +73,7 @@ export default function ConnectPage() {
       if (!response.ok) throw new Error(typeof body?.message === 'string' ? body.message : 'Unable to send request.');
       setTitle(''); setMessage('');
       await load();
+      setSuccess(true);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : 'Unable to send request.');
     } finally { setSending(false); }
@@ -88,10 +102,16 @@ export default function ConnectPage() {
       <section className="connect-panel">
         <div className="connect-section-head"><div><span>REQUEST SOMETHING</span><h2>How can the hotel help?</h2></div><small>{activeRequests.length} active</small></div>
         {stay.canRequest ? <div className="connect-form">
-          <label>Request type<select value={category} onChange={event => setCategory(event.target.value)}>{categories.map(item => <option key={item} value={item}>{item.replaceAll('_', ' ')}</option>)}</select></label>
+          <div className="connect-quick-actions" role="group" aria-label="Choose what you need">
+            {quickActions.map(action => <button type="button" key={action.category} className={group === action.category ? 'selected' : ''} aria-pressed={group === action.category} onClick={() => { setGroup(action.category); setCategory(action.category); setSuccess(false); }}>
+              <strong>{action.label}</strong><small>{action.description}</small>
+            </button>)}
+          </div>
+          <label>Tell us a little more<select value={category} onChange={event => { setCategory(event.target.value); setSuccess(false); }}>{categoryOptions[group].map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
           <label>What do you need?<input value={title} onChange={event => setTitle(event.target.value)} placeholder="Extra towels" maxLength={120} /></label>
           <label>Details<textarea value={message} onChange={event => setMessage(event.target.value)} placeholder="Tell the hotel what would make your stay better…" maxLength={1000} /></label>
           <button disabled={sending || !title.trim() || !message.trim()} onClick={() => void submit()}>{sending ? 'Sending…' : 'Send request'}</button>
+          {success && <p role="status" className="connect-success">Request sent! Your hotel has received it. You can see it in Stay activity below.</p>}
         </div> : <p className="connect-muted">New requests are no longer available for this stay.</p>}
       </section>
 
