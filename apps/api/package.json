@@ -6,7 +6,10 @@
     "dev": "nest start --watch",
     "build": "nest build",
     "start": "node dist/main.js",
-    "test": "jest --runInBand"
+    "test": "jest --runInBand",
+    "demo:setup": "node scripts/pilot01.cjs setup",
+    "demo:reset": "node scripts/pilot01.cjs reset",
+    "test:pilot": "PILOT01_INTEGRATION=1 jest --runInBand --runTestsByPath src/connect/pilot01.integration.spec.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",

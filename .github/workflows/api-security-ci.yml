@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'apps/api/**'
+      - 'docs/PILOT_01_DEMO.md'
       - 'packages/**'
       - 'package.json'
       - 'pnpm-workspace.yaml'
@@ -13,6 +14,7 @@ on:
       - main
     paths:
       - 'apps/api/**'
+      - 'docs/PILOT_01_DEMO.md'
       - 'packages/**'
       - 'package.json'
       - 'pnpm-workspace.yaml'
@@ -74,3 +76,17 @@ jobs:
 
       - name: Build API
         run: pnpm --filter @vantara/api build
+
+      - name: Verify synthetic Pilot 01 against isolated PostgreSQL
+        env:
+          NODE_ENV: test
+          PILOT01_DEMO: synthetic-local-only
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: vantara
+          PGPASSWORD: vantara
+          DATABASE_URL: postgresql://vantara:vantara@localhost:5432/vantara_pilot01?schema=public
+        run: |
+          createdb vantara_pilot01
+          pnpm --filter @vantara/api exec prisma migrate deploy
+          pnpm --filter @vantara/api test:pilot
