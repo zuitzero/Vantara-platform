@@ -176,14 +176,14 @@ export default function ConnectPage() {
         </article>)}</div>}
       </section>
 
-      <section className="connect-panel">
-        <div className="connect-section-head"><div><span>YOUR HISTORY</span><h2>Completed & cancelled</h2></div><small>{pastRequests.length} past</small></div>
+      <details className="connect-panel connect-history">
+        <summary className="connect-history-summary"><div><span>YOUR HISTORY</span><strong>Completed & cancelled</strong></div><small>{pastRequests.length} past <span aria-hidden="true">⌄</span></small></summary>
         {pastRequests.length === 0 ? <p className="connect-muted">Your completed requests will appear here.</p> : <div className="connect-requests">{pastRequests.map(request => <article key={request.id}>
           <div><strong>{request.title}</strong><span>{request.category.replaceAll('_', ' ')}</span></div>
           <p>{request.message}</p><small>{request.status.replaceAll('_', ' ')} · {formatDate(request.completedAt ?? request.createdAt)}</small>
           {request.resolutionNote && <blockquote>{request.resolutionNote}</blockquote>}
         </article>)}</div>}
-      </section>
+      </details>
     </section>
   </main>;
 }
