@@ -9,3 +9,13 @@
 @media(max-width:480px){.connect-quick-actions{grid-template-columns:1fr 1fr}.connect-quick-actions button{padding:12px;min-height:100px}}
 
 .connect-notice-dismiss{float:right;border:0;background:transparent;color:inherit;font-size:20px;cursor:pointer;margin-left:14px}
+
+.connect-history-summary{display:flex;align-items:center;justify-content:space-between;gap:16px;cursor:pointer;list-style:none}
+.connect-history-summary::-webkit-details-marker{display:none}
+.connect-history-summary>div{display:flex;flex-direction:column;gap:6px}
+.connect-history-summary strong{font-size:20px;color:#f4f4f5}
+.connect-history-summary small{white-space:nowrap;color:#a1a1aa}
+.connect-history-summary small span{display:inline-block;margin-left:7px;transition:transform .2s}
+.connect-history[open] .connect-history-summary small span{transform:rotate(180deg)}
+.connect-history-summary:focus-visible{outline:2px solid #b6ff00;outline-offset:5px;border-radius:8px}
+.connect-history>.connect-requests,.connect-history>.connect-muted{margin-top:18px}
