@@ -14,16 +14,18 @@ type RequestItem = {
   room?: { number?: string | number; name?: string } | null;
 };
 
-const statuses = ['ALL', 'CREATED', 'ACKNOWLEDGED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'] as const;
+const statuses = ['OPEN', 'ALL', 'CREATED', 'ACKNOWLEDGED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'] as const;
 const nextStatus: Partial<Record<RequestItem['status'], RequestItem['status']>> = {
   CREATED: 'ACKNOWLEDGED',
   ACKNOWLEDGED: 'IN_PROGRESS',
   IN_PROGRESS: 'COMPLETED',
 };
+const actionLabels: Partial<Record<RequestItem['status'], string>> = { CREATED: 'Accept', ACKNOWLEDGED: 'Start work', IN_PROGRESS: 'Complete' };
+const isOpen = (status: RequestItem['status']) => status !== 'COMPLETED' && status !== 'CANCELLED';
 
 export function RequestsCenter({ focusedRequestId, onFocusConsumed }: { focusedRequestId?: string | null; onFocusConsumed?: () => void }) {
   const [requests, setRequests] = useState<RequestItem[]>([]);
-  const [filter, setFilter] = useState<(typeof statuses)[number]>('ALL');
+  const [filter, setFilter] = useState<(typeof statuses)[number]>('OPEN');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [updating, setUpdating] = useState<string | null>(null);
@@ -54,6 +56,8 @@ export function RequestsCenter({ focusedRequestId, onFocusConsumed }: { focusedR
   }, [focusedRequestId, loading, requests, onFocusConsumed]);
 
   const updateStatus = async (request: RequestItem) => {
+    if (updating) return;
+    setError(null);
     const status = nextStatus[request.status];
     if (!status) return;
     const base = process.env.NEXT_PUBLIC_API_URL ?? '/api';
@@ -65,7 +69,10 @@ export function RequestsCenter({ focusedRequestId, onFocusConsumed }: { focusedR
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
       });
-      if (!response.ok) throw new Error('Status update failed.');
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => null);
+        throw new Error(typeof errorBody?.message === 'string' ? errorBody.message : `Status update failed (${response.status}).`);
+      }
       const updated = await response.json();
       setRequests((current) => current.map((item) => item.id === request.id ? updated : item));
     } catch (err) {
@@ -75,9 +82,9 @@ export function RequestsCenter({ focusedRequestId, onFocusConsumed }: { focusedR
     }
   };
 
-  const visible = useMemo(() => filter === 'ALL' ? requests : requests.filter((item) => item.status === filter), [filter, requests]);
-  const open = requests.filter((item) => !['COMPLETED', 'CANCELLED'].includes(item.status)).length;
-  const urgent = requests.filter((item) => item.priority === 'URGENT' && !['COMPLETED', 'CANCELLED'].includes(item.status)).length;
+  const visible = useMemo(() => filter === 'ALL' ? requests : filter === 'OPEN' ? requests.filter((item) => isOpen(item.status)) : requests.filter((item) => item.status === filter), [filter, requests]);
+  const open = requests.filter((item) => isOpen(item.status)).length;
+  const urgent = requests.filter((item) => item.priority === 'URGENT' && isOpen(item.status)).length;
 
   return (
     <section className="requests-center">
@@ -87,7 +94,7 @@ export function RequestsCenter({ focusedRequestId, onFocusConsumed }: { focusedR
           <h2>Requests center</h2>
           <p>Every guest request, from arrival to completion, in one operational queue.</p>
         </div>
-        <button className="refresh-button" onClick={() => void load()} disabled={loading}>↻ {loading ? 'Syncing' : 'Sync'}</button>
+        <button className="refresh-button" onClick={() => void load()} disabled={loading || !!updating}>↻ {loading ? 'Syncing' : 'Sync'}</button>
       </div>
 
       <div className="request-stats">
@@ -100,7 +107,7 @@ export function RequestsCenter({ focusedRequestId, onFocusConsumed }: { focusedR
       <div className="request-toolbar">
         <div className="request-filters">
           {statuses.map((status) => (
-            <button key={status} className={filter === status ? 'selected' : ''} onClick={() => setFilter(status)}>{status.replace('_', ' ')}</button>
+            <button key={status} className={filter === status ? 'selected' : ''} onClick={() => setFilter(status)} aria-pressed={filter === status}>{status.replaceAll('_', ' ')}</button>
           ))}
         </div>
         <span className="queue-count">{visible.length} {visible.length === 1 ? 'request' : 'requests'}</span>
@@ -113,7 +120,7 @@ export function RequestsCenter({ focusedRequestId, onFocusConsumed }: { focusedR
         <div className="request-empty"><span className="empty-mark">✓</span><strong>No requests in this view</strong><span>The queue is clear for this status filter.</span></div>
       ) : (
         <div className="request-list">
-          {visible.map((request) => <RequestCard key={request.id} request={request} highlighted={focusedRequestId === request.id} updating={updating === request.id} onAdvance={updateStatus} />)}
+          {visible.map((request) => <RequestCard key={request.id} request={request} highlighted={focusedRequestId === request.id} updating={!!updating} isUpdatingThis={updating === request.id} onAdvance={updateStatus} />)}
         </div>
       )}
     </section>
@@ -124,7 +131,7 @@ function Stat({ label, value, tone = '' }: { label: string; value: string; tone?
   return <div className={`request-stat ${tone}`}><span>{label}</span><strong>{value}</strong></div>;
 }
 
-function RequestCard({ request, updating, highlighted, onAdvance }: { request: RequestItem; updating: boolean; highlighted: boolean; onAdvance: (request: RequestItem) => void }) {
+function RequestCard({ request, updating, isUpdatingThis, highlighted, onAdvance }: { request: RequestItem; updating: boolean; isUpdatingThis: boolean; highlighted: boolean; onAdvance: (request: RequestItem) => void }) {
   const guestName = request.guest?.name ?? ([request.guest?.firstName, request.guest?.lastName].filter(Boolean).join(' ') || 'Guest');
   const room = request.room?.number ?? request.room?.name ?? 'Unassigned';
   const next = nextStatus[request.status];
@@ -142,7 +149,7 @@ function RequestCard({ request, updating, highlighted, onAdvance }: { request: R
       </div>
       <div className="request-card-side">
         <span className={`request-status ${request.status.toLowerCase()}`}><i /> {request.status.replace('_', ' ')}</span>
-        {next ? <button className="advance-button" onClick={() => onAdvance(request)} disabled={updating}>{updating ? 'Updating...' : `Move to ${next.replace('_', ' ')}`}</button> : <span className="completed-label">✓ Resolved</span>}
+        {next ? <button className="advance-button" onClick={() => onAdvance(request)} disabled={updating}>{isUpdatingThis ? 'Updating...' : actionLabels[request.status]}</button> : <span className="completed-label">✓ {request.status === 'COMPLETED' ? 'Completed' : 'Cancelled'}</span>}
       </div>
     </article>
   );
