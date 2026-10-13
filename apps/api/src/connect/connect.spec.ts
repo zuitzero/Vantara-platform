@@ -88,4 +88,54 @@ describe('Vantara Connect access boundary', () => {
     await expect(service.stay('short')).rejects.toThrow('not found');
     expect(db.guestConnectAccess.findUnique).not.toHaveBeenCalled();
   });
+  it('rotating an access link replaces the stored token hash', async () => {
+    const { service, db } = fixture();
+    const first = await service.issue('hotel-a', 'res-a');
+    const second = await service.issue('hotel-a', 'res-a');
+    expect(first.token).not.toBe(second.token);
+    const firstHash = db.guestConnectAccess.upsert.mock.calls[0][0].create.tokenHash;
+    const secondWrite = db.guestConnectAccess.upsert.mock.calls[1][0];
+    expect(secondWrite.update.tokenHash).not.toBe(firstHash);
+    expect(secondWrite.update.revokedAt).toBeNull();
+    expect(secondWrite.update.lastUsedAt).toBeNull();
+  });
+
+  it('rejects creating requests with revoked access', async () => {
+    const { service, db, requests, reservation } = fixture();
+    db.guestConnectAccess.findUnique.mockResolvedValue({
+      id: 'access-a', tenantId: 'hotel-a', reservation,
+      expiresAt: new Date(Date.now() + 3600000), revokedAt: new Date(),
+    });
+    await expect(service.createRequest('d'.repeat(43), {
+      title: 'Extra towels', message: 'Please bring towels', category: 'HOUSEKEEPING' as any,
+    })).rejects.toThrow('Connect access not found');
+    expect(requests.createForReservationGuest).not.toHaveBeenCalled();
+  });
+
+  it('disables new requests once checkout passes even if the link still exists', async () => {
+    const { service, db, requests, reservation } = fixture();
+    db.guestConnectAccess.findUnique.mockResolvedValue({
+      id: 'access-a', tenantId: 'hotel-a',
+      reservation: { ...reservation, checkOut: new Date(Date.now() - 1000) },
+      expiresAt: new Date(Date.now() + 3600000), revokedAt: null,
+    });
+    const token = 'e'.repeat(43);
+    const stay = await service.stay(token);
+    expect(stay.canRequest).toBe(false);
+    await expect(service.createRequest(token, {
+      title: 'Extra towels', message: 'Please bring towels', category: 'HOUSEKEEPING' as any,
+    })).rejects.toThrow('This stay can no longer create requests');
+    expect(requests.createForReservationGuest).not.toHaveBeenCalled();
+  });
+
+  it('allows revocation only for access owned by the specified hotel', async () => {
+    const { service, db } = fixture();
+    db.guestConnectAccess.findFirst.mockResolvedValue(null);
+    await expect(service.revoke('hotel-b', 'res-a')).rejects.toThrow('Connect access not found');
+    expect(db.guestConnectAccess.findFirst).toHaveBeenCalledWith({
+      where: { reservationId: 'res-a', tenantId: 'hotel-b' },
+    });
+    expect(db.guestConnectAccess.update).not.toHaveBeenCalled();
+  });
+
 });
