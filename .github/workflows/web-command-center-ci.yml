@@ -46,3 +46,16 @@ jobs:
 
       - name: Build web
         run: pnpm --filter @vantara/web build
+
+      - name: Assert guest route is included in production build
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const path = 'apps/web/.next/server/app-paths-manifest.json';
+          if (!fs.existsSync(path)) throw new Error('Next.js app-paths manifest missing');
+          const routes = Object.keys(JSON.parse(fs.readFileSync(path, 'utf8')));
+          for (const route of ['/page', '/onboarding/page', '/connect/[token]/page']) {
+            if (!routes.includes(route)) throw new Error('Missing Next.js app route: ' + route + '; found: ' + routes.join(', '));
+          }
+          console.log('Verified guest Connect, onboarding and home routes');
+          NODE

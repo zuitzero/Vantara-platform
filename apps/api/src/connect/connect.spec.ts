@@ -138,4 +138,43 @@ describe('Vantara Connect access boundary', () => {
     expect(db.guestConnectAccess.update).not.toHaveBeenCalled();
   });
 
+  it('round-trips a reservation-scoped request from guest submission to guest stay status', async () => {
+    const { service, db, requests, reservation } = fixture();
+    db.guestConnectAccess.findUnique.mockResolvedValue({
+      id: 'access-a', tenantId: 'hotel-a', reservation, revokedAt: null,
+      expiresAt: new Date(Date.now() + 3600000),
+    });
+    const token = 'f'.repeat(43);
+    const input = { title: 'Extra towels', message: 'Please bring two towels', category: 'HOUSEKEEPING' as any };
+    await service.createRequest(token, input);
+    expect(requests.createForReservationGuest).toHaveBeenCalledWith(
+      'hotel-a', 'res-a', expect.objectContaining(input),
+    );
+    db.guestRequest.findMany.mockResolvedValue([
+      { id: 'req-a', ...input, status: 'IN_PROGRESS', completedAt: null },
+    ]);
+    const inProgress = await service.stay(token);
+    expect(inProgress.requests).toEqual([expect.objectContaining({ id: 'req-a', status: 'IN_PROGRESS' })]);
+    db.guestRequest.findMany.mockResolvedValue([
+      { id: 'req-a', ...input, status: 'COMPLETED', completedAt: new Date() },
+    ]);
+    const completed = await service.stay(token);
+    expect(completed.requests).toEqual([expect.objectContaining({ id: 'req-a', status: 'COMPLETED' })]);
+    for (const call of db.guestRequest.findMany.mock.calls) {
+      expect(call[0].where).toEqual({ tenantId: 'hotel-a', reservationId: 'res-a' });
+    }
+  });
+
+  it('never returns requests belonging to another reservation in the stay query', async () => {
+    const { service, db, reservation } = fixture();
+    db.guestConnectAccess.findUnique.mockResolvedValue({
+      id: 'access-a', tenantId: 'hotel-a', reservation, revokedAt: null,
+      expiresAt: new Date(Date.now() + 3600000),
+    });
+    await service.stay('g'.repeat(43));
+    const query = db.guestRequest.findMany.mock.calls[0][0];
+    expect(query.where).toEqual({ tenantId: 'hotel-a', reservationId: 'res-a' });
+    expect(query.take).toBeLessThanOrEqual(50);
+  });
+
 });
