@@ -7,3 +7,5 @@
 .connect-quick-actions button:focus-visible,.connect-form button:focus-visible{outline:2px solid #b6ff00;outline-offset:3px}
 .connect-success{margin:0;border:1px solid #375929;background:#121f11;color:#d5ffbb;border-radius:12px;padding:12px;font-size:13px}
 @media(max-width:480px){.connect-quick-actions{grid-template-columns:1fr 1fr}.connect-quick-actions button{padding:12px;min-height:100px}}
+
+.connect-notice-dismiss{float:right;border:0;background:transparent;color:inherit;font-size:20px;cursor:pointer;margin-left:14px}
