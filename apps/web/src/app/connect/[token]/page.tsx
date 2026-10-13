@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import './connect.css';
 
@@ -31,6 +31,7 @@ const categoryOptions: Record<string, { value: string; label: string }[]> = {
   AMENITIES: [{ value: 'AMENITIES', label: 'Hotel amenities' }, { value: 'CONCIERGE', label: 'Recommendations and activities' }],
   FRONT_DESK: [{ value: 'FRONT_DESK', label: 'Front desk' }, { value: 'OTHER', label: 'Something else' }],
 };
+const isActive = (status: string) => status !== 'COMPLETED' && status !== 'CANCELLED';
 const formatDate = (value: string) => new Intl.DateTimeFormat('en', { dateStyle: 'medium' }).format(new Date(value));
 
 export default function ConnectPage() {
@@ -46,20 +47,69 @@ export default function ConnectPage() {
   const [success, setSuccess] = useState(false);
   const [title, setTitle] = useState('');
   const [message, setMessage] = useState('');
+  const [syncWarning, setSyncWarning] = useState(false);
+  const [statusNotice, setStatusNotice] = useState('');
+  const statusSnapshot = useRef<Map<string, string> | null>(null);
 
-  const load = async () => {
-    setLoading(true); setError(null);
+  const load = useCallback(async (signal?: AbortSignal, background = false) => {
+    if (!background) { setLoading(true); setError(null); }
     try {
-      const response = await fetch(`${base}/connect/${encodeURIComponent(token)}`, { cache: 'no-store' });
+      const response = await fetch(`${base}/connect/${encodeURIComponent(token)}`, { cache: 'no-store', signal });
       if (!response.ok) throw new Error(response.status === 404 ? 'This guest link is invalid or has expired.' : 'Unable to load your stay.');
-      setStay(await response.json());
+      const updated = await response.json() as Stay;
+      if (signal?.aborted) return false;
+      const nextSnapshot = new Map(updated.requests.map(request => [request.id, request.status]));
+      const previous = statusSnapshot.current;
+      if (previous && background) {
+        const changed = updated.requests.filter(request => previous.has(request.id) && previous.get(request.id) !== request.status);
+        if (changed.length) setStatusNotice(changed.length === 1
+          ? `Your request "${changed[0].title}" is now ${changed[0].status.replaceAll('_', ' ').toLowerCase()}.`
+          : `${changed.length} requests have been updated by your hotel.`);
+      }
+      statusSnapshot.current = nextSnapshot;
+      setStay(updated);
+      setSyncWarning(false);
+      setError(null);
+      return true;
     } catch (failure) {
-      setStay(null); setError(failure instanceof Error ? failure.message : 'Unable to load your stay.');
-    } finally { setLoading(false); }
-  };
+      if (signal?.aborted) return false;
+      const message = failure instanceof Error ? failure.message : 'Unable to load your stay.';
+      if (background && message !== 'This guest link is invalid or has expired.') {
+        setSyncWarning(true);
+      } else {
+        setStay(null);
+        setError(message);
+      }
+      return false;
+    } finally {
+      if (!signal?.aborted && !background) setLoading(false);
+    }
+  }, [base, token]);
 
-  useEffect(() => { void load(); }, [token]);
-  const activeRequests = useMemo(() => stay?.requests.filter(request => !['COMPLETED', 'CANCELLED'].includes(request.status)) ?? [], [stay]);
+  useEffect(() => {
+    statusSnapshot.current = null;
+    setStay(null);
+    setLoading(true);
+    const controller = new AbortController();
+    void load(controller.signal);
+    return () => controller.abort();
+  }, [load]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let inFlight = false;
+    const refresh = async () => {
+      if (document.hidden || inFlight || controller.signal.aborted) return;
+      inFlight = true;
+      try { await load(controller.signal, true); } finally { inFlight = false; }
+    };
+    const interval = window.setInterval(() => void refresh(), 15000);
+    document.addEventListener('visibilitychange', refresh);
+    return () => { controller.abort(); window.clearInterval(interval); document.removeEventListener('visibilitychange', refresh); };
+  }, [load]);
+
+  const activeRequests = useMemo(() => stay?.requests.filter(request => isActive(request.status)) ?? [], [stay]);
+  const pastRequests = useMemo(() => stay?.requests.filter(request => !isActive(request.status)) ?? [], [stay]);
 
   const submit = async () => {
     if (!title.trim() || !message.trim()) return;
@@ -72,8 +122,8 @@ export default function ConnectPage() {
       const body = await response.json().catch(() => null);
       if (!response.ok) throw new Error(typeof body?.message === 'string' ? body.message : 'Unable to send request.');
       setTitle(''); setMessage('');
-      await load();
-      setSuccess(true);
+      const refreshed = await load();
+      if (refreshed) setSuccess(true);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : 'Unable to send request.');
     } finally { setSending(false); }
@@ -98,6 +148,8 @@ export default function ConnectPage() {
       </section>
 
       {error && <div className="connect-error">{error}</div>}
+      {syncWarning && <div className="connect-error" role="status">Connection interrupted. Your latest request statuses may be out of date. We will keep trying.</div>}
+      {statusNotice && <div className="connect-success" role="status">{statusNotice}<button className="connect-notice-dismiss" onClick={() => setStatusNotice('')} aria-label="Dismiss status update">×</button></div>}
 
       <section className="connect-panel">
         <div className="connect-section-head"><div><span>REQUEST SOMETHING</span><h2>How can the hotel help?</h2></div><small>{activeRequests.length} active</small></div>
@@ -116,10 +168,19 @@ export default function ConnectPage() {
       </section>
 
       <section className="connect-panel">
-        <div className="connect-section-head"><div><span>YOUR REQUESTS</span><h2>Stay activity</h2></div><small>{stay.requests.length} total</small></div>
-        {stay.requests.length === 0 ? <p className="connect-muted">No requests yet.</p> : <div className="connect-requests">{stay.requests.map(request => <article key={request.id}>
+        <div className="connect-section-head"><div><span>YOUR REQUESTS</span><h2>Active requests</h2></div><small>{activeRequests.length} active</small></div>
+        {activeRequests.length === 0 ? <p className="connect-muted">No active requests. You are all caught up.</p> : <div className="connect-requests">{activeRequests.map(request => <article key={request.id}>
           <div><strong>{request.title}</strong><span>{request.category.replaceAll('_', ' ')}</span></div>
           <p>{request.message}</p><small>{request.status.replaceAll('_', ' ')} · {formatDate(request.createdAt)}</small>
+          {request.resolutionNote && <blockquote>{request.resolutionNote}</blockquote>}
+        </article>)}</div>}
+      </section>
+
+      <section className="connect-panel">
+        <div className="connect-section-head"><div><span>YOUR HISTORY</span><h2>Completed & cancelled</h2></div><small>{pastRequests.length} past</small></div>
+        {pastRequests.length === 0 ? <p className="connect-muted">Your completed requests will appear here.</p> : <div className="connect-requests">{pastRequests.map(request => <article key={request.id}>
+          <div><strong>{request.title}</strong><span>{request.category.replaceAll('_', ' ')}</span></div>
+          <p>{request.message}</p><small>{request.status.replaceAll('_', ' ')} · {formatDate(request.completedAt ?? request.createdAt)}</small>
           {request.resolutionNote && <blockquote>{request.resolutionNote}</blockquote>}
         </article>)}</div>}
       </section>
