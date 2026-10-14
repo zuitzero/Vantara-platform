@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - 'apps/web/**'
+      - 'apps/api/scripts/pilot01.cjs'
+      - 'apps/api/src/connect/pilot01.integration.spec.ts'
+      - 'docs/PILOT_01_DEMO.md'
       - 'package.json'
       - 'pnpm-workspace.yaml'
       - '.github/workflows/web-command-center-ci.yml'
@@ -12,6 +15,9 @@ on:
       - main
     paths:
       - 'apps/web/**'
+      - 'apps/api/scripts/pilot01.cjs'
+      - 'apps/api/src/connect/pilot01.integration.spec.ts'
+      - 'docs/PILOT_01_DEMO.md'
       - 'package.json'
       - 'pnpm-workspace.yaml'
       - '.github/workflows/web-command-center-ci.yml'
