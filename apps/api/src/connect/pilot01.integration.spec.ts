@@ -1,6 +1,7 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHash, randomUUID } from 'node:crypto';
+import { Prisma } from '@prisma/client';
 import { AppModule } from '../app.module';
 import { PrismaService } from '../prisma/prisma.service';
 // No compiler/build changes for the development-only fixture tool.
@@ -93,6 +94,52 @@ integration('Pilot 01 real PostgreSQL / HTTP regression', () => {
     const audits = JSON.stringify(await db.auditLog.findMany()); check(!sensitive.some(token => audits.includes(token)), 'TOKEN_IN_AUDIT');
     const accesses = JSON.stringify(await db.guestConnectAccess.findMany()); check(!sensitive.some(token => accesses.includes(token)), 'RAW_TOKEN_PERSISTED');
   });
+  const corruptions = ['property', 'guest', 'request', 'housekeeping', 'maintenance', 'notification', 'receipt', 'session', 'audit', 'reservation-link', 'guest-edit'];
+  it.each(corruptions)('rejects foreign %s data before reset with a byte-equivalent database snapshot', async kind => {
+    const a = (await db.reservation.findUnique({ where: { id: reservationA } }))!;
+    const b = (await db.reservation.findUnique({ where: { id: reservationB } }))!;
+    let cleanup: () => Promise<unknown>;
+    const common = { tenantId: a.tenantId, propertyId: a.propertyId, roomId: a.roomId! };
+    if (kind === 'property') {
+      const row = await db.property.create({ data: { tenantId: a.tenantId, name: 'SYNTHETIC foreign property' } }); cleanup = () => db.property.delete({ where: { id: row.id } });
+    } else if (kind === 'guest') {
+      const row = await db.guest.create({ data: { tenantId: a.tenantId, propertyId: a.propertyId, firstName: 'SYNTHETIC outsider', lastName: 'Fixture', email: `sentinel-${randomUUID()}@example.invalid` } }); cleanup = () => db.guest.delete({ where: { id: row.id } });
+    } else if (kind === 'request') {
+      const row = await db.guestRequest.create({ data: { ...common, reservationId: a.id, guestId: b.guestId, title: 'DEMO inconsistent identity', message: 'Synthetic sentinel', category: 'AMENITIES' } }); cleanup = () => db.guestRequest.delete({ where: { id: row.id } });
+    } else if (kind === 'housekeeping') {
+      const row = await db.housekeepingTask.create({ data: { ...common, title: 'DEMO unlinked work', blocksRoom: false } }); cleanup = () => db.housekeepingTask.delete({ where: { id: row.id } });
+    } else if (kind === 'maintenance') {
+      const row = await db.maintenanceTicket.create({ data: { ...common, title: 'DEMO unlinked repair', description: 'Synthetic sentinel', blocksRoom: false } }); cleanup = () => db.maintenanceTicket.delete({ where: { id: row.id } });
+    } else if (kind === 'notification') {
+      const row = await db.notification.create({ data: { tenantId: a.tenantId, audience: 'HOTEL', severity: 'INFO', channel: 'IN_APP', type: 'foreign.synthetic', title: 'DEMO unlinked notification', message: 'Synthetic sentinel' } }); cleanup = () => db.notification.delete({ where: { id: row.id } });
+    } else if (kind === 'receipt') {
+      const notification = (await db.notification.findFirst({ where: { tenantId: a.tenantId, audience: 'HOTEL' } }))!;
+      const row = await db.notificationRead.create({ data: { tenantId: a.tenantId, notificationId: notification.id, userId: ids('b').user } }); cleanup = () => db.notificationRead.delete({ where: { notificationId_userId: { notificationId: row.notificationId, userId: row.userId } } });
+    } else if (kind === 'session') {
+      const row = await db.session.create({ data: { userId: ids('a').user, activeTenantId: b.tenantId, tokenHash: randomBytes(32).toString('hex'), expiresAt: new Date(Date.now() + 1000) } }); cleanup = () => db.session.delete({ where: { id: row.id } });
+    } else if (kind === 'audit') {
+      const row = await db.auditLog.create({ data: { tenantId: a.tenantId, actorUserId: ids('b').user, action: 'READ', resourceType: 'reservation', resourceId: a.id } }); cleanup = () => db.auditLog.delete({ where: { id: row.id } });
+    } else if (kind === 'reservation-link') {
+      await db.reservation.update({ where: { id: a.id }, data: { guestId: b.guestId } }); cleanup = () => db.reservation.update({ where: { id: a.id }, data: { guestId: a.guestId } });
+    } else {
+      await db.guest.update({ where: { id: a.guestId }, data: { phone: 'SYNTHETIC foreign value' } }); cleanup = () => db.guest.update({ where: { id: a.guestId }, data: { phone: null } });
+    }
+    const snapshot = async () => {
+      const rows = await Promise.all(Prisma.dmmf.datamodel.models.map(async model => {
+        const name = model.name[0].toLowerCase() + model.name.slice(1);
+        const entries = (await (db as any)[name].findMany()).map((row: unknown) => JSON.stringify(row)).sort();
+        return `${name}:${createHash('sha256').update(JSON.stringify(entries)).digest('hex')}`;
+      }));
+      return rows.join('|'); // Hashes only: no credentials/tokens in assertion output.
+    };
+    try {
+      const before = await snapshot();
+      for (const command of ['reset', 'setup']) {
+        let rejected = false; try { await provision(db, command, password); } catch { rejected = true; }
+        check(rejected && before === await snapshot(), 'FOREIGN_DATA_MUTATED');
+      }
+    } finally { await cleanup(); }
+  });
   it('refuses unrelated preexisting tenants without modifying their records', async () => {
     const unrelated = await db.tenant.create({ data: { name: 'SYNTHETIC collision sentinel', slug: 'synthetic-sentinel' } });
     const count = await db.reservation.count(); let refused = false;
@@ -104,7 +151,7 @@ integration('Pilot 01 real PostgreSQL / HTTP regression', () => {
 });
 
 describe('Pilot 01 pre-connection safety guards', () => {
-  const env = { NODE_ENV: 'test', PILOT01_DEMO: 'synthetic-local-only', DATABASE_URL: 'postgresql://demo@localhost:5432/vantara_pilot01?schema=public', PILOT01_PASSWORD: randomBytes(24).toString('hex') };
-  it.each([{ NODE_ENV: 'production' }, { NODE_ENV: '' }, { PILOT01_DEMO: '' }, { PILOT01_PASSWORD: '' }, { DATABASE_URL: 'postgresql://demo@remote.example/vantara_pilot01' }, { DATABASE_URL: 'postgresql://demo@localhost/vantara' }, { DATABASE_URL: 'postgresql://demo@localhost/vantara_pilot01?host=production.example' }, { DATABASE_URL: 'postgresql://demo@localhost/vantara_pilot01?schema=production' }, { STRIPE_SECRET_KEY: 'not-a-real-key' }])('rejects unsafe configuration before connection (%j)', change => { expect(() => configuration({ ...env, ...change })).toThrow(); });
-  it('accepts explicit synthetic local development/test only', () => { expect(configuration(env).url).toBe(env.DATABASE_URL); });
+  const env = { NODE_ENV: 'test', PILOT01_DEMO: 'synthetic-local-only', DATABASE_URL: 'postgresql://vantara_pilot01_demo@localhost:5432/vantara_pilot01?schema=public', PILOT01_PASSWORD: randomBytes(24).toString('hex') };
+  it.each([{ NODE_ENV: 'production' }, { NODE_ENV: '' }, { PILOT01_DEMO: '' }, { PILOT01_PASSWORD: '' }, { DATABASE_URL: 'postgresql://vantara_pilot01_demo@remote.example/vantara_pilot01' }, { DATABASE_URL: 'postgresql://vantara_pilot01_demo@localhost/vantara' }, { DATABASE_URL: 'postgresql://vantara_pilot01_demo@localhost/vantara_pilot01?host=production.example' }, { DATABASE_URL: 'postgresql://vantara_pilot01_demo@localhost/vantara_pilot01?schema=production' }, { STRIPE_SECRET_KEY: 'not-a-real-key' }, { PGHOST: 'remote.example' }, { PGSERVICE: 'production' }, { PGOPTIONS: '-c search_path=production' }, { PRISMA_ACCELERATE_URL: 'https://remote.example' }, { DATABASE_URL: 'postgresql://admin@localhost/vantara_pilot01' }, { DATABASE_URL: 'postgresql://vantara_pilot01_demo@localhost/vantara_pilot01#other' }])('rejects unsafe configuration before connection (%j)', change => { expect(() => configuration({ ...env, ...change })).toThrow(); });
+  it('accepts explicit synthetic local development/test only', () => { expect(configuration(env).url).toBe(env.DATABASE_URL.replace('localhost', '127.0.0.1')); });
 });

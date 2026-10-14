@@ -89,4 +89,4 @@ jobs:
         run: |
           createdb vantara_pilot01
           pnpm --filter @vantara/api exec prisma migrate deploy
-          pnpm --filter @vantara/api test:pilot
+          node apps/api/scripts/pilot01-ci.cjs

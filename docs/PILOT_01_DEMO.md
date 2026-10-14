@@ -11,8 +11,14 @@ billing. Las cuentas tienen contraseña scrypt compatible con el login existente
 - Node 22, pnpm 10.15.0 y PostgreSQL 18 local/deshabilitado para acceso externo.
 - Base **exclusiva y desechable** llamada `vantara_pilot01`, inicialmente vacía
   salvo las migraciones Prisma. Nunca usar un túnel, réplica, dump o base real.
-- Un rol local que solo tenga permisos sobre esa base; credenciales propias de
-  demo. No copiar credenciales de producción. Mantenerlas fuera de Git y logs.
+- Instancia PostgreSQL **aislada y desechable**, sin otras bases de clientes.
+- Rol de ejecución `vantara_pilot01_demo`, directo y sin membresías, superuser,
+  CREATEDB/CREATEROLE/REPLICATION/BYPASSRLS, creación de schema/base ni propiedad
+  de objetos. Usar credenciales propias de demo, fuera de Git y logs.
+- Comentario de base `VANTARA_PILOT01_LOCAL_SYNTHETIC_ONLY` puesto deliberadamente
+  por el administrador de esa instancia DEMO. Sin ese marcador se rechaza el uso.
+- Retirar variables `PG*` y `PRISMA_*` de la terminal de ejecución: no se permiten
+  overrides de conexión/servicio/motores. No usar un entorno de producción.
 - `NODE_ENV=development` (o test) y `PILOT01_DEMO=synthetic-local-only` explícitos.
 - Contraseña DEMO de 16–128 caracteres suministrada por entorno; no hay default.
 - Ninguna variable `STRIPE_*` con valor. Usar una sesión de terminal limpia.
@@ -30,20 +36,25 @@ echo
 export PILOT01_PASSWORD
 pnpm --filter @vantara/api exec prisma generate
 node -e 'require("./apps/api/scripts/pilot01.cjs").configuration(process.env)'
-pnpm --filter @vantara/api exec prisma migrate deploy
+# La base debe estar previamente migrada por su administrador local (ver abajo).
 pnpm --filter @vantara/api demo:setup
 ```
 
 Crear la base vacía previamente con la administración de tu instancia local.
 La URL debe ser `postgresql://…@localhost:PUERTO/vantara_pilot01?schema=public`
 (o 127.0.0.1/::1). No se aceptan hosts alternativos ni parámetros de conexión
-adicionales. Revisar el destino **antes** de ejecutar migraciones: la protección
-es del script DEMO, no un cambio al comando general de Prisma. No imprimir la
+adicionales. El usuario de la URL debe ser `vantara_pilot01_demo`. `localhost` se normaliza
+  a 127.0.0.1 para evitar overrides DNS/hosts. Revisar el destino antes de las
+  migraciones: los controles son del provisionador, no del comando general Prisma. No imprimir la
 URL, contraseña ni contenido del entorno; no usar `set -x`.
 
 El primer setup es atómico y requiere una base sin datos de aplicación. Repetir
-setup valida las dos identidades/roles/contraseñas y las reservas marcadas como
-sintéticas; no cambia fechas, credenciales, historial ni enlaces. Un tercer
+setup valida identidades/roles/contraseñas y el grafo sintético completo:
+propiedades con UUID de escenario, inventario/huésped/reserva únicos por propiedad,
+relaciones del mismo tenant, solicitudes ligadas a esa reserva, tareas derivadas,
+notificaciones/lecturas, sesiones y referencias de auditoría. CRM, billing, staff
+operativo e incidentes no están permitidos en esta base. Una entidad desconocida
+con datos también se rechaza. Esta validación termina antes de cualquier escritura; no cambia fechas, credenciales, historial ni enlaces. Un tercer
 usuario/tenant, credenciales distintas o reservas ajenas provoca rechazo. No se
 adopta ni sobrescribe una base preexistente. Un fallo revierte la transacción y
 solo imprime un mensaje genérico. El script comprueba entorno/destino antes de
@@ -66,6 +77,42 @@ Abrir `http://localhost:3000/onboarding`, usar **Sign in** con
 usuarios nuevos en esta base: el provisionador rechaza identidades ajenas.
 La demo no necesita suscripción/Stripe: el sidebar muestra NO PLAN; Billing y
 la creación de inventario que requiere entitlements quedan fuera del recorrido.
+
+## Preparación de PostgreSQL y límites de privilegios
+
+Solo el administrador de una **instancia nueva de demo**, nunca uno de producción,
+crea `vantara_pilot01` y aplica las migraciones existentes con su URL privada.
+Ejecutar `prisma migrate deploy` en esa base vacía requiere un rol distinto al
+runtime. No ejecutar migraciones con `vantara_pilot01_demo` ni ampliar sus permisos
+para hacerlas pasar. Revisar manualmente host/puerto/volumen antes de cualquier DDL.
+
+Luego, dentro de una sesión psql privada conectada a esa base DEMO (sin `PG*` en
+la terminal runtime), configurar lo siguiente. No hay contraseña default; `\password`
+la pide sin mostrarla. Esto son instrucciones locales, no migraciones de producción:
+
+```sql
+CREATE ROLE vantara_pilot01_demo LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
+  NOREPLICATION NOBYPASSRLS NOINHERIT;
+\password vantara_pilot01_demo
+COMMENT ON DATABASE vantara_pilot01 IS 'VANTARA_PILOT01_LOCAL_SYNTHETIC_ONLY';
+GRANT CONNECT ON DATABASE vantara_pilot01 TO vantara_pilot01_demo;
+GRANT USAGE ON SCHEMA public TO vantara_pilot01_demo;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO vantara_pilot01_demo;
+GRANT INSERT, UPDATE, DELETE ON tenants, users, memberships, properties,
+  room_types, rooms, guests, reservations, guest_connect_access, guest_requests,
+  housekeeping_tasks, maintenance_tickets, notifications, notification_reads,
+  sessions, audit_logs TO vantara_pilot01_demo;
+```
+
+No transferir propiedad de base/schema/tablas a este rol, ni conceder membresías,
+privilegios DDL o permisos de escritura en billing/CRM/staff. Revisar grants PUBLIC
+heredados en la instancia aislada; PostgreSQL puede dar CONNECT/TEMP por defecto.
+El control read-only al empezar la transacción verifica la identidad de base/rol,
+el marcador, que no sea réplica, ni rol elevado, ni propietario de objetos ni
+creador de schemas/bases. Rechaza antes de locks/escrituras si no se cumplen.
+El proceso `demo:*` nunca concede permisos, marca una base ni intenta corregir
+una configuración rechazada. No es un sandbox para SQL arbitrario ni un mecanismo
+para probar que un cluster contiene exclusivamente datos sintéticos.
 
 ## Reiniciar sin borrar
 
@@ -134,6 +181,13 @@ CONFIRMED → emisión Connect → solicitud → notificación persistida →
 ACKNOWLEDGED/IN_PROGRESS/COMPLETED → stay actualizado. Comprueba tenant A/B,
 rechazo de tenantId en POST, hash-only storage, rotación, revocación, expiración,
 reset sin pérdida de historial y ausencia de tokens en logs de aplicación/audit.
+La conexión de ejecución usa un rol DML limitado, no el administrador de
+migraciones. `pilot01-ci.cjs` configura ese rol y el marcador solo en la base nueva
+creada en el servicio PostgreSQL desechable de GitHub Actions, con contraseña
+aleatoria nunca impresa. El provisionador y la aplicación no hacen CREATE ROLE,
+GRANT ni COMMENT. La prueba de corrupción compara hashes de todas las tablas
+antes/después de cada rechazo (setup/reset), incluyendo relaciones cruzadas entre
+huéspedes/reservas, propiedades, tareas, notificaciones/recibos, sesiones y auditoría.
 Web CI compila y verifica `/`, `/onboarding` y `/connect/[token]` en el manifiesto.
 
 ## Evidencia y riesgos pendientes
@@ -154,9 +208,16 @@ hasta ejecutar el guion en dos sesiones de navegador.
   Un fallo de publicación puede dejar una solicitud persistida sin notificación.
 - Requests permite PATCH de estado sin una máquina de transiciones estricta;
   la demo usa solo Accept/Start/Complete existentes, sin ampliar ese alcance.
-- Reset conserva escenarios anteriores y crece la base. Los operadores deben
-  mantenerla exclusiva, local y sintética. Las comprobaciones no detectan túneles
-  hacia producción ni certifican datos que alguien haya editado manualmente.
+- Reset conserva escenarios y crece la base. Los operadores deben mantenerla
+  exclusiva, local y sintética. La validación estructural/etiquetas no demuestra
+  que el contenido de mensajes libres carezca de información real: no introducirla.
+- Un túnel SSH, port-forward, proxy TCP, Docker port mapping o sidecar puede escuchar
+  en loopback. El nombre localhost/127.0.0.1/::1 **no certifica** el servidor remoto.
+  Verificar el proceso que posee el puerto y el contenedor/volumen de la instancia,
+  sin imprimir argumentos con credenciales. No usar túneles, backups reales ni
+  credenciales reutilizadas. El marcador y el rol limitado reducen errores de
+  destino, pero un servidor malicioso o un operador que los replique puede engañar
+  estas comprobaciones. No hay atestación criptográfica/TLS del servidor local.
 - Sin suscripción DEMO: no probar Billing, altas de Rooms/Staff ni capacidades
   fuera del Issue #35. No se cambia el esquema de producción ni la lógica existente.
 
@@ -165,3 +226,10 @@ rutas correctas. El sandbox local bloqueó sockets HTTP y memoria compartida de
 PostgreSQL; por eso la suite completa tuvo fallos EPERM en tests HTTP ya existentes
 y la integración PostgreSQL no se ejecutó localmente. CI es la evidencia de ese
 recorrido. La verificación visual/comercial está NOT RUN hasta aceptación humana.
+
+Referencias de los controles PostgreSQL:
+[privilegios efectivos e identidad de sesión](https://www.postgresql.org/docs/18/functions-info.html),
+[atributos de roles](https://www.postgresql.org/docs/18/sql-createrole.html),
+[logs SQL y errores](https://www.postgresql.org/docs/18/runtime-config-logging.html).
+El bootstrap CI desactiva el logging de sentencias solo en su transacción efímera
+antes de generar el rol; no cambia configuración de servidores de producción.

@@ -1,14 +1,17 @@
 // Local synthetic fixtures only. Never imported by the application or a public route.
 const { PrismaClient } = require('@prisma/client');
 const { randomBytes, randomUUID, scryptSync, createHash, timingSafeEqual } = require('node:crypto');
+const { DATABASE_ROLE, connectionSafety, emptyDatabase, syntheticGraph } = require('./pilot01-safety.cjs');
 const MARKER = 'VANTARA_PILOT01_SYNTHETIC_V1';
 const ids = side => ({ tenant: `pilot01-demo-${side}`, user: `pilot01-admin-${side}`, email: `admin-${side}@pilot01.example.invalid`, name: `DEMO Pilot 01 Hotel ${side.toUpperCase()}` });
 function configuration(env) {
   if (!['development', 'test'].includes(env.NODE_ENV) || env.PILOT01_DEMO !== 'synthetic-local-only') throw new Error('DEMO_ENV_REQUIRED');
   let url; try { url = new URL(env.DATABASE_URL); } catch { throw new Error('DEMO_DATABASE_REQUIRED'); }
-  if (url.protocol !== 'postgresql:' || !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) || url.pathname !== '/vantara_pilot01' || [...url.searchParams].some(([key, value]) => key !== 'schema' || value !== 'public')) throw new Error('DEMO_DATABASE_REJECTED');
+  if (url.protocol !== 'postgresql:' || !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) || url.pathname !== '/vantara_pilot01' || url.username !== DATABASE_ROLE || url.hash || [...url.searchParams].some(([key, value]) => key !== 'schema' || value !== 'public')) throw new Error('DEMO_DATABASE_REJECTED');
+  if (Object.entries(env).some(([key, value]) => /^(PG|PRISMA_)/.test(key) && value)) throw new Error('DEMO_CONNECTION_OVERRIDE_REJECTED');
   if (!env.PILOT01_PASSWORD || env.PILOT01_PASSWORD.length < 16 || env.PILOT01_PASSWORD.length > 128) throw new Error('DEMO_PASSWORD_REQUIRED');
   if (Object.entries(env).some(([key, value]) => /^STRIPE_/.test(key) && value)) throw new Error('DEMO_EXTERNAL_BILLING_FORBIDDEN');
+  if (url.hostname === 'localhost') url.hostname = '127.0.0.1'; // Avoid DNS/hosts overrides; this still cannot detect a loopback tunnel.
   return { url: url.toString(), password: env.PILOT01_PASSWORD };
 }
 function passwordHash(password) {
@@ -25,21 +28,20 @@ function matches(password, hash) {
 async function provision(db, command, password, now = new Date()) {
   if (!['setup', 'reset'].includes(command)) throw new Error('DEMO_COMMAND_REJECTED');
   return db.$transaction(async tx => {
+    await connectionSafety(tx);
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(350135)`;
     const tenants = await tx.tenant.findMany({ include: { memberships: { include: { user: true } } } });
     const users = await tx.user.findMany();
     if (tenants.length || users.length) {
       if (tenants.length !== 2 || users.length !== 2 || !['a', 'b'].every(side => {
         const fixture = ids(side); const tenant = tenants.find(row => row.id === fixture.tenant); const user = users.find(row => row.id === fixture.user);
-        return tenant?.name === fixture.name && tenant.slug === fixture.tenant && tenant.type === 'HOTEL' && tenant.memberships.length === 1 && tenant.memberships[0].userId === fixture.user && tenant.memberships[0].role === 'HOTEL_ADMIN' && user?.email === fixture.email && matches(password, user.passwordHash);
+        return tenant?.name === fixture.name && tenant.slug === fixture.tenant && tenant.type === 'HOTEL' && tenant.memberships.length === 1 && tenant.memberships[0].userId === fixture.user && tenant.memberships[0].role === 'HOTEL_ADMIN' && user?.email === fixture.email && user.name === `DEMO Administrator ${side.toUpperCase()}` && matches(password, user.passwordHash);
       })) throw new Error('DEMO_EXISTING_DATA_REJECTED');
-      if (await tx.reservation.count({ where: { notes: { not: MARKER } } }) || await tx.reservation.count({ where: { notes: null } })) throw new Error('DEMO_EXISTING_DATA_REJECTED');
+      await syntheticGraph(tx, MARKER);
       if (command === 'setup') return { created: false };
     } else {
       // Refuse partial or unrelated fixture data; never adopt/overwrite it.
-      for (const model of ['property', 'roomType', 'room', 'guest', 'reservation', 'guestRequest', 'notification', 'session', 'auditLog', 'stripeWebhookEvent']) {
-        if (await tx[model].count()) throw new Error('DEMO_EXISTING_DATA_REJECTED');
-      }
+      await emptyDatabase(tx);
       for (const side of ['a', 'b']) {
         const fixture = ids(side);
         await tx.tenant.create({ data: { id: fixture.tenant, slug: fixture.tenant, name: fixture.name, type: 'HOTEL', memberships: { create: { role: 'HOTEL_ADMIN', user: { create: { id: fixture.user, email: fixture.email, name: `DEMO Administrator ${side.toUpperCase()}`, passwordHash: passwordHash(password) } } } } } });
@@ -72,7 +74,7 @@ async function main() {
     // DB/provider errors can contain URLs or parameters. Never print their object.
     console.error('Pilot 01 refused or failed safely. Check the documented local-only environment, password, migrations and empty/owned database requirements.');
     process.exitCode = 1;
-  } finally { await db?.$disconnect(); }
+  } finally { try { await db?.$disconnect(); } catch { process.exitCode = 1; } }
 }
 if (require.main === module) void main();
 module.exports = { configuration, provision, ids, MARKER };
