@@ -54,23 +54,27 @@ describe('Cloud HTTP origin, signup and two-tenant regression', () => {
   function request(path: string, token = 'a', method = 'GET', body?: object, requestOrigin: string | null = origin) {
     return fetch(`${base}/api${path}`, { method, headers: { Cookie: `vantara_session=synthetic-${token}`, ...(requestOrigin ? { Origin: requestOrigin } : {}), 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
   }
-  function upgrade(originValue?: string): Promise<number> {
+  function upgrade(originValue?: string): Promise<{ status: number; body: string }> {
     return new Promise((resolve, reject) => {
       const req = httpRequest(`${base}/socket.io/?EIO=4&transport=websocket`, { headers: {
         Connection: 'Upgrade', Upgrade: 'websocket', 'Sec-WebSocket-Version': '13',
         'Sec-WebSocket-Key': 'c3ludGhldGljLXRlc3QwMQ==',
         ...(originValue === undefined ? {} : { Origin: originValue }),
       } });
-      req.on('upgrade', (response, socket) => { socket.destroy(); resolve(response.statusCode!); });
-      req.on('response', response => { response.resume(); resolve(response.statusCode!); });
+      req.on('upgrade', (response, socket) => { socket.destroy(); resolve({ status: response.statusCode!, body: '' }); });
+      req.on('response', response => {
+        let body = ''; response.on('data', chunk => { body += chunk; });
+        response.on('end', () => resolve({ status: response.statusCode!, body }));
+      });
       req.on('error', reject); req.end();
     });
   }
   it.each([undefined, 'null', 'https://evil.example.invalid'])('rejects an actual Engine.IO WebSocket upgrade with origin %s', async value => {
-    expect(await upgrade(value)).toBe(403);
+    // Engine.IO abortUpgrade uses HTTP 400 even for its FORBIDDEN error code.
+    expect(await upgrade(value)).toEqual({ status: 400, body: 'Forbidden' });
   });
   it('permits the trusted-origin transport upgrade; namespace session auth remains separate', async () => {
-    expect(await upgrade(origin)).toBe(101);
+    expect((await upgrade(origin)).status).toBe(101);
   });
   it('denies public signup even with a trusted origin and performs no database writes', async () => {
     const response = await request('/onboarding/workspace', 'a', 'POST', { name: 'Synthetic', email: 'synthetic@example.invalid', password: 'synthetic-password', hotelName: 'Synthetic Hotel', slug: 'synthetic-hotel', propertyName: 'Synthetic Property' });
