@@ -22,8 +22,8 @@ available. This change provisions nothing and does not authorize exposure.
 | STRIPE_* / AI | no activation by this change | leave unset; existing test-only Stripe key/event verification remains authoritative; no LLM adapter or key added |
 
 API startup validates the nonlocal environment **before Nest/Prisma initialization**.
-Unspecified NODE_ENV is not an escape hatch. For local API watch mode set
-`NODE_ENV=development` explicitly (the API example file documents it); Next sets
+Unspecified NODE_ENV is not an escape hatch. The API `dev` script explicitly sets
+`NODE_ENV=development` (also documented in the API example file); Next sets
 its development/production mode. API/Next must receive matching WEB_ORIGIN.
 Web production builds intentionally fail with absent Cloud origins/upstream.
 The CI build uses reserved `.invalid` synthetic configuration and does not contact
@@ -112,14 +112,14 @@ API tests include fail-closed signup/config, exact-origin policy, secure cookie
 flags, session hash/expiry/membership/logout behavior, namespace origin rejection,
 per-delivery revocation and tenant isolation. HTTP tests use real Nest routing,
 auth/tenant/permission guards and services with **mocked synthetic Prisma records**;
-they cover direct-origin signup, login CSRF, Set-Cookie, missing sessions,
+they cover actual Engine.IO upgrade Origin checks, direct-origin signup, login CSRF, Set-Cookie, missing sessions,
 client tenant fields and both A→B/B→A guest lookup denial. These are not a real
 PostgreSQL or browser test. Web tests exercise same-origin transport config.
 Existing API CI separately migrates a fresh disposable PostgreSQL service and
 runs the guarded Pilot 01 regression. No real hotel/provider data is used.
 
 Local sandbox result: API build and Web build/TypeScript passed; Web tests passed.
-Full API attempt: 356 passed, 15 skipped; 61 cases blocked by loopback `listen
+Full API attempt: 356 passed, 15 skipped; 65 cases blocked by loopback `listen
 EPERM` across existing Billing and new HTTP tests. No test is weakened/skipped to
 hide that restriction. CI results for the exact PR revision must be checked before
 review approval. Automated tests/builds are not browser visual validation.

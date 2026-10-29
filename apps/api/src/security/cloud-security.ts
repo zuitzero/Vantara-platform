@@ -1,3 +1,4 @@
+import { SESSION_COOKIE } from '../auth/auth.constants';
 import { ForbiddenException } from '@nestjs/common';
 import type { NextFunction, Request, Response } from 'express';
 
@@ -55,7 +56,7 @@ export function allowedOrigin(origin: unknown, env: Environment = process.env): 
 }
 
 export function sessionCookie(value: string, maxAge: number, env: Environment = process.env): string {
-  return `vantara_session=${value}; HttpOnly; Path=/; Max-Age=${maxAge}; SameSite=Lax${isLocal(env) ? '' : '; Secure'}`;
+  return `${SESSION_COOKIE}=${value}; HttpOnly; Path=/; Max-Age=${maxAge}; SameSite=Lax${isLocal(env) ? '' : '; Secure'}`;
 }
 
 export function securityMiddleware(request: Request, response: Response, next: NextFunction): void {

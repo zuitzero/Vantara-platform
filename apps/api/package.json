@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
-    "dev": "nest start --watch",
+    "dev": "NODE_ENV=development nest start --watch",
     "build": "nest build",
     "start": "node dist/main.js",
     "test": "jest --runInBand",

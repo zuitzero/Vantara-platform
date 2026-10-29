@@ -1,6 +1,8 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { createHash } from 'node:crypto';
+import { request as httpRequest } from 'node:http';
+import { NotificationsGateway } from '../notifications/notifications.gateway';
 import { AuthController } from '../auth/auth.controller';
 import { AuthGuard } from '../auth/auth.guard';
 import { AuthService } from '../auth/auth.service';
@@ -40,7 +42,7 @@ describe('Cloud HTTP origin, signup and two-tenant regression', () => {
     delete process.env.VANTARA_ENV; delete process.env.ALLOW_LOCAL_WORKSPACE_SIGNUP;
     const module = await Test.createTestingModule({
       controllers: [AuthController, OnboardingController, GuestsController],
-      providers: [AuthService, AuthGuard, OnboardingService, GuestsService, TenantContextGuard, PermissionsGuard, RbacService,
+      providers: [NotificationsGateway, AuthService, AuthGuard, OnboardingService, GuestsService, TenantContextGuard, PermissionsGuard, RbacService,
         { provide: PrismaService, useValue: db }, { provide: AuditService, useValue: { record: jest.fn() } }],
     }).compile();
     app = module.createNestApplication(); app.use(securityMiddleware); app.setGlobalPrefix('api');
@@ -52,6 +54,24 @@ describe('Cloud HTTP origin, signup and two-tenant regression', () => {
   function request(path: string, token = 'a', method = 'GET', body?: object, requestOrigin: string | null = origin) {
     return fetch(`${base}/api${path}`, { method, headers: { Cookie: `vantara_session=synthetic-${token}`, ...(requestOrigin ? { Origin: requestOrigin } : {}), 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
   }
+  function upgrade(originValue?: string): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const req = httpRequest(`${base}/socket.io/?EIO=4&transport=websocket`, { headers: {
+        Connection: 'Upgrade', Upgrade: 'websocket', 'Sec-WebSocket-Version': '13',
+        'Sec-WebSocket-Key': 'c3ludGhldGljLXRlc3QwMQ==',
+        ...(originValue === undefined ? {} : { Origin: originValue }),
+      } });
+      req.on('upgrade', (response, socket) => { socket.destroy(); resolve(response.statusCode!); });
+      req.on('response', response => { response.resume(); resolve(response.statusCode!); });
+      req.on('error', reject); req.end();
+    });
+  }
+  it.each([undefined, 'null', 'https://evil.example.invalid'])('rejects an actual Engine.IO WebSocket upgrade with origin %s', async value => {
+    expect(await upgrade(value)).toBe(403);
+  });
+  it('permits the trusted-origin transport upgrade; namespace session auth remains separate', async () => {
+    expect(await upgrade(origin)).toBe(101);
+  });
   it('denies public signup even with a trusted origin and performs no database writes', async () => {
     const response = await request('/onboarding/workspace', 'a', 'POST', { name: 'Synthetic', email: 'synthetic@example.invalid', password: 'synthetic-password', hotelName: 'Synthetic Hotel', slug: 'synthetic-hotel', propertyName: 'Synthetic Property' });
     expect(response.status).toBe(403); expect(db.$transaction).not.toHaveBeenCalled();
