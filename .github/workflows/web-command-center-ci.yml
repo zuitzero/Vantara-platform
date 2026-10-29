@@ -50,7 +50,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
+      - name: Test web transport configuration
+        run: pnpm --filter @vantara/web test
+
       - name: Build web
+        env:
+          WEB_ORIGIN: https://synthetic-staging.example.invalid
+          API_INTERNAL_URL: http://api.internal:3001
         run: pnpm --filter @vantara/web build
 
       - name: Assert guest route is included in production build
