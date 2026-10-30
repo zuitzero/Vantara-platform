@@ -1,11 +1,14 @@
 # CLOUD-02: signup and same-origin transport foundation
 
 Scope: [#43](https://github.com/zuitzero/Vantara-platform/issues/43), part of
-[#41](https://github.com/zuitzero/Vantara-platform/issues/41). Based on actual
-main `80039c59cc210b10fa9f21b7bf04745e73a5163a`.
-[Audit PR #42](https://github.com/zuitzero/Vantara-platform/pull/42) and AI-01 PR
-#39 were OPEN/unmerged when inspected. Their work is not included or presumed
-available. This change provisions nothing and does not authorize exposure.
+[#41](https://github.com/zuitzero/Vantara-platform/issues/41). Updated against
+main `dd94979d64981d55b926de8e491206fb6be2d13e`, containing merged
+[AI-01 PR #39](https://github.com/zuitzero/Vantara-platform/pull/39) and
+[audit PR #42](https://github.com/zuitzero/Vantara-platform/pull/42).
+AI-01 remains isolated contracts/validation only: no controller/provider activation
+or request execution. CLOUD-02 runtime security behavior is unchanged by this sync.
+The Web CI workflow retains both AI-01 path filters and transport tests/config.
+This change provisions nothing and does not authorize exposure.
 
 ## Configuration contract
 
@@ -119,7 +122,7 @@ Existing API CI separately migrates a fresh disposable PostgreSQL service and
 runs the guarded Pilot 01 regression. No real hotel/provider data is used.
 
 Local sandbox result: API build and Web build/TypeScript passed; Web tests passed.
-Full API attempt: 356 passed, 15 skipped; 65 cases blocked by loopback `listen
+Full API attempt on updated main: 431 passed, 15 skipped; 65 cases blocked by loopback `listen
 EPERM` across existing Billing and new HTTP tests. No test is weakened/skipped to
 hide that restriction. CI results for the exact PR revision must be checked before
 review approval. Automated tests/builds are not browser visual validation.

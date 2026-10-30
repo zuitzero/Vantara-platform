@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'apps/web/**'
+      - 'apps/api/src/intelligence/**'
       - 'apps/api/scripts/pilot01.cjs'
       - 'apps/api/src/connect/pilot01.integration.spec.ts'
       - 'docs/PILOT_01_DEMO.md'
@@ -15,6 +16,7 @@ on:
       - main
     paths:
       - 'apps/web/**'
+      - 'apps/api/src/intelligence/**'
       - 'apps/api/scripts/pilot01.cjs'
       - 'apps/api/src/connect/pilot01.integration.spec.ts'
       - 'docs/PILOT_01_DEMO.md'
