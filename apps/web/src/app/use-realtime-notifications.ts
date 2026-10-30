@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import { realtimeUrl } from '../../transport-config';
 import { io } from 'socket.io-client';
 
 export type RealtimeNotification = {
@@ -18,8 +19,8 @@ export function useRealtimeNotifications(
   onNotification: (notification: RealtimeNotification) => void,
 ) {
   useEffect(() => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
-    const socket = io(`${apiUrl}/realtime`, {
+    const socket = io(realtimeUrl(process.env.NEXT_PUBLIC_REALTIME_URL, process.env.NODE_ENV === 'production', window.location.origin), {
+      path: '/socket.io',
       withCredentials: true,
       transports: ['websocket'],
       autoConnect: true,

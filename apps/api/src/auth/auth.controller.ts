@@ -1,9 +1,10 @@
+import { sessionCookie } from '../security/cloud-security';
 import { Body, Controller, Get, Param, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './auth.dto';
 import { AuthGuard, AuthenticatedRequest } from './auth.guard';
-import { SESSION_COOKIE, SESSION_TTL_DAYS } from './auth.constants';
+import { SESSION_TTL_DAYS } from './auth.constants';
 
 @Controller('auth')
 export class AuthController {
@@ -14,7 +15,7 @@ export class AuthController {
     const session = await this.authService.login(input);
     response.setHeader(
       'Set-Cookie',
-      `${SESSION_COOKIE}=${session.token}; HttpOnly; Path=/; Max-Age=${SESSION_TTL_DAYS * 24 * 60 * 60}; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`,
+      sessionCookie(session.token, SESSION_TTL_DAYS * 24 * 60 * 60),
     );
     return { expiresAt: session.expiresAt };
   }
@@ -44,8 +45,9 @@ export class AuthController {
     if (token) await this.authService.logout(token);
     response.setHeader(
       'Set-Cookie',
-      `${SESSION_COOKIE}=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`,
+      sessionCookie('', 0),
     );
     return { success: true };
   }
 }
+

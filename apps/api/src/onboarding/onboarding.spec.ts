@@ -32,6 +32,9 @@ function fixture() {
 const pipe = new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true });
 
 describe('Safe hotel bootstrap', () => {
+  const previous = process.env.ALLOW_LOCAL_WORKSPACE_SIGNUP;
+  beforeAll(() => { process.env.ALLOW_LOCAL_WORKSPACE_SIGNUP = 'true'; });
+  afterAll(() => { if (previous === undefined) delete process.env.ALLOW_LOCAL_WORKSPACE_SIGNUP; else process.env.ALLOW_LOCAL_WORKSPACE_SIGNUP = previous; });
   it('normalizes identity and slug, fixes HOTEL_ADMIN/HOTEL and preserves trial without creating sessions', async () => {
     const { service, tx, db } = fixture();
     const result = await service.createWorkspace(input as any);
