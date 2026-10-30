@@ -3,6 +3,8 @@ name: API Security CI
 on:
   pull_request:
     paths:
+      - 'infra/staging/**'
+      - '.github/workflows/staging-phase-a.yml'
       - 'apps/api/**'
       - 'docs/PILOT_01_DEMO.md'
       - 'packages/**'
@@ -13,6 +15,8 @@ on:
     branches:
       - main
     paths:
+      - 'infra/staging/**'
+      - '.github/workflows/staging-phase-a.yml'
       - 'apps/api/**'
       - 'docs/PILOT_01_DEMO.md'
       - 'packages/**'

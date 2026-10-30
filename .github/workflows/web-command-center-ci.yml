@@ -3,6 +3,8 @@ name: Web Command Center CI
 on:
   pull_request:
     paths:
+      - 'infra/staging/**'
+      - '.github/workflows/staging-phase-a.yml'
       - 'apps/web/**'
       - 'apps/api/src/intelligence/**'
       - 'apps/api/scripts/pilot01.cjs'
@@ -15,6 +17,8 @@ on:
     branches:
       - main
     paths:
+      - 'infra/staging/**'
+      - '.github/workflows/staging-phase-a.yml'
       - 'apps/web/**'
       - 'apps/api/src/intelligence/**'
       - 'apps/api/scripts/pilot01.cjs'

@@ -1,0 +1,80 @@
+# REVIEW TEMPLATE ONLY. Provider edge terminates HTTPS/WSS; only it reaches port 8080.
+# Phase B must prove private origins, reviewer-only ingress and outer-edge log suppression.
+worker_processes 1;
+pid nginx.pid;
+# Nginx error context can contain raw request targets; suppress it, do not pretend regex redaction.
+error_log /dev/null crit;
+events { worker_connections 256; }
+http {
+  map $http_upgrade $connection_upgrade { default upgrade; '' close; }
+  map $uri $route_class {
+    default "other";
+    ~^/api/connect(?:/|$) "connect-api";
+    ~^/connect(?:/|$) "connect-web";
+    ~^/api/auth(?:/|$) "auth";
+    ~^/socket.io(?:/|$) "socket";
+    ~^/api(?:/|$) "api";
+  }
+  # Only static route categories + status. No paths, queries, headers, body, IP or identities.
+  log_format safe escape=json '{"route":"$route_class","status":$status}';
+  access_log access.log safe;
+  limit_req_zone $binary_remote_addr zone=api_ip:1m rate=10r/s;
+  limit_req_zone $binary_remote_addr zone=login_ip:1m rate=2r/m;
+  limit_req_zone $binary_remote_addr zone=socket_ip:1m rate=2r/s;
+  limit_conn_zone $binary_remote_addr zone=connections:1m;
+  limit_conn_zone $server_name zone=total_connections:1m;
+  limit_req_status 429;
+  limit_conn_status 429;
+  client_max_body_size 16k;
+  client_body_timeout 10s;
+  client_header_timeout 10s;
+  send_timeout 30s;
+  proxy_http_version 1.1;
+  proxy_cache off;
+  proxy_set_header Host @@HOST@@;
+  proxy_set_header X-Forwarded-Proto https;
+  proxy_set_header X-Forwarded-For $remote_addr;
+  proxy_set_header Forwarded "";
+  proxy_set_header X-Forwarded-Host "";
+  proxy_set_header X-Forwarded-Port "";
+  server { listen 8080 default_server; server_name _; return 444; }
+  server {
+    listen 8080;
+    server_name @@HOST@@;
+    add_header Cache-Control "no-store" always;
+    add_header Referrer-Policy "no-referrer" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    limit_conn connections 20;
+    limit_conn total_connections 100;
+    # Normalized URI blocks encoded/trailing-slash variants; API service also denies signup.
+    location ~ ^/api/onboarding/workspace/?$ { return 403; }
+    # No sandbox/live billing activation in the first synthetic staging candidate.
+    location ~ ^/api/billing(?:/|$) { return 403; }
+    location ~ ^/api/auth/login/?$ {
+      limit_req zone=login_ip burst=4 nodelay;
+      proxy_pass @@API@@;
+    }
+    location /api/ {
+      limit_req zone=api_ip burst=20 nodelay;
+      proxy_pass @@API@@;
+    }
+    location /socket.io/ {
+      limit_req zone=socket_ip burst=5 nodelay;
+      limit_conn connections 5;
+      limit_conn total_connections 100;
+      proxy_set_header Host @@HOST@@;
+      proxy_set_header X-Forwarded-Proto https;
+      proxy_set_header X-Forwarded-For $remote_addr;
+      proxy_set_header Forwarded "";
+      proxy_set_header X-Forwarded-Host "";
+      proxy_set_header X-Forwarded-Port "";
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection $connection_upgrade;
+      proxy_read_timeout 75s;
+      proxy_send_timeout 75s;
+      proxy_buffering off;
+      proxy_pass @@API@@;
+    }
+    location / { proxy_pass @@WEB@@; }
+  }
+}
