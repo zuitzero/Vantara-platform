@@ -1,0 +1,27 @@
+{
+  "phase": "A",
+  "dataMode": "synthetic-only",
+  "publicOrigin": "https://pilot-staging.example.invalid",
+  "webUpstream": "http://web.staging.internal:3000",
+  "apiUpstream": "http://api.staging.internal:3001",
+  "database": {
+    "host": "db.staging.internal",
+    "name": "vantara_staging",
+    "runtimeRole": "vantara_staging_runtime",
+    "migrationRole": "vantara_staging_migrator",
+    "tls": "verify-peer-and-host",
+    "connectionLimit": 5
+  },
+  "apiEnvironment": {
+    "NODE_ENV": "production",
+    "VANTARA_ENV": "staging",
+    "ALLOW_LOCAL_WORKSPACE_SIGNUP": "false",
+    "WEB_ORIGIN": "https://pilot-staging.example.invalid"
+  },
+  "webEnvironment": {
+    "NODE_ENV": "production",
+    "WEB_ORIGIN": "https://pilot-staging.example.invalid",
+    "API_INTERNAL_URL": "http://api.staging.internal:3001",
+    "NEXT_PUBLIC_API_URL": "/api"
+  }
+}

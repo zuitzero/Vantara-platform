@@ -1,0 +1,31 @@
+name: Staging Phase A configuration
+on:
+  pull_request:
+    paths: ['infra/staging/**', '.github/workflows/staging-phase-a.yml']
+  push:
+    branches: [main]
+    paths: ['infra/staging/**', '.github/workflows/staging-phase-a.yml']
+permissions:
+  contents: read
+jobs:
+  offline-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Nginx test binary without starting a public/default service
+        run: |
+          printf '#!/bin/sh\nexit 101\n' | sudo tee /usr/sbin/policy-rc.d > /dev/null
+          sudo chmod +x /usr/sbin/policy-rc.d
+          sudo apt-get update -qq
+          sudo apt-get install -y nginx
+      - name: Validate offline contract and real loopback-only gateway
+        env:
+          STAGING_NGINX_TEST: '1'
+          NGINX_BIN: /usr/sbin/nginx
+        run: |
+          node infra/staging/config.cjs check
+          node --test infra/staging/*.test.cjs
