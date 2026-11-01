@@ -1,5 +1,11 @@
 # Provider decision sheet — Phase A, 2026-10-30
 
+> **2026-11-01 follow-up:** this Phase A candidate/estimate is superseded for provider
+> selection by [CLOUD-03B](../../docs/cloud/CLOUD_03B_PROVIDER_DECISION.md). Render's
+> public URL logging and documented internal TLS identity-verification limitation
+> remain BLOCKED. No runtime/config changes or deployment approval follow from it.
+
+
 **Evaluation candidate only: Render paid services + managed PostgreSQL, one isolated
 staging workspace/region. Not selected/purchased. Founder sign-off fields are PENDING.**
 
