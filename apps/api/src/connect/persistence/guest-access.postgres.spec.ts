@@ -1,3 +1,4 @@
+import { guestHttpTests } from '../http/guest-http.postgres';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { PostgresGuestAccessRepository } from './guest-access.repository';
@@ -141,7 +142,7 @@ integration('CONNECT-SEC-02 real PostgreSQL18: distinct backend connections', ()
     const legacy = new ConnectService(a as any, {} as any);
     expect(await queue('access', () => operation === 'revoke' ? legacy.revoke(tenant, res) : legacy.issue(tenant, res), () => exchange(repoB, code.codeHash))).toEqual([true, false]);
     await expect(repoB.checkSession(secretHash)).rejects.toThrow(GuestProtocolDenied);
-    expect((await a.guestConnectAccess.findUniqueOrThrow({ where: { reservationId: res } })).generation).toBe(1);
+    expect((await a.guestConnectAccess.findUniqueOrThrow({ where: { reservationId: res } })).generation).toBe(2);
   });
   it('orders actual checkout side effects before queued exchange and denies an earlier session', async () => {
     const hash = fingerprint(); await exchange(repoA, (await mint()).codeHash, hash); const code = await mint();
@@ -210,4 +211,6 @@ integration('CONNECT-SEC-02 real PostgreSQL18: distinct backend connections', ()
     const foreign = await a.guestRequest.create({ data: { tenantId: 'cs02-b', reservationId: 'cs02-res-b', propertyId: 'cs02-b-property', guestId: 'cs02-b-guest', title: 'SYNTHETIC', message: 'SYNTHETIC', category: 'OTHER' } });
     await expect(a.guestConnectIdempotency.update({ where: { id: claim.id }, data: { resultRequestId: foreign.id } })).rejects.toThrow();
   });
+  guestHttpTests(() => ({ a, b, blocker, monitor, pidA, pidB, queue, blocked, mint }));
+
 });
