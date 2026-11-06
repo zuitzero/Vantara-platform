@@ -193,6 +193,8 @@ export function guestHttpTests(context: () => Context) {
         check((await call(`connect/${issued.token}`)).status === 200, 'LEGACY_READ_CHANGED');
         check((await call(`connect/${issued.token}/requests`, 'POST', body)).status === 201, 'LEGACY_CREATE_CHANGED');
         check((await call('guest-connect/session', 'POST', { code: opaque() })).status === 404, 'GATE_DEFAULT_CHANGED');
+        // No keys configured: 503 proves raw bytes and signature reached the disabled verifier; missing rawBody would be400.
+        check((await call('billing/webhooks/stripe', 'POST', '{\"synthetic\":true}', undefined, { 'stripe-signature': 'synthetic-not-a-signature' })).status === 503, 'LEGACY_RAW_BODY_PARSER_CHANGED');
       } finally { process.env.CONNECT_GUEST_HTTP = 'synthetic-https-only'; }
     });
     it('applies a bounded rate limit to actual HTTP exchange attempts', async () => {
