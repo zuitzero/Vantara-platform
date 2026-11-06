@@ -5,7 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { RequestsService } from '../../requests/requests.service';
 import { GUEST_PROTOCOL, GuestProtocolDenied } from '../protocol/guest-access.contracts';
 import { GuestPayloadConflict, PostgresGuestAccessRepository } from '../persistence/guest-access.repository';
-import { digest } from './guest-http.security';
+import { digest, enabled } from './guest-http.security';
 
 export function requestInput(body: unknown) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new GuestProtocolDenied();
@@ -20,18 +20,30 @@ const projection = { id: true, title: true, message: true, category: true, prior
 @Injectable()
 export class GuestHttpService {
   readonly repository: PostgresGuestAccessRepository;
-  constructor(db: PrismaService, private readonly requests: RequestsService) { this.repository = new PostgresGuestAccessRepository(db, GUEST_PROTOCOL); }
+  constructor(private readonly db: PrismaService, private readonly requests: RequestsService) { this.repository = new PostgresGuestAccessRepository(db, GUEST_PROTOCOL); }
+  private async syntheticDatabase() {
+    if (!enabled()) throw new GuestProtocolDenied();
+    try {
+      // Lazy dependency: default-off app startup does not load CI tooling or open a connection.
+      // A local flag must never authorize a production DB accidentally configured in development.
+      const { verify } = require('../../../scripts/connect-sec02-target.cjs');
+      await verify(this.db);
+    } catch { throw new GuestProtocolDenied(); }
+  }
   async issue(tenantId: string, reservationId: string) {
+    await this.syntheticDatabase();
     const code = randomBytes(32).toString('base64url');
     const record = await this.repository.createBootstrap({ tenantId, reservationId, codeHash: digest(code), rootHash: digest(randomBytes(32).toString('base64url')) });
     return { code, expiresAt: record.expiresAt }; // Single authorized delivery, no URL or logs.
   }
   async exchange(code: string) {
+    await this.syntheticDatabase();
     const secret = randomBytes(32).toString('base64url');
     const record = await this.repository.exchangeOnce({ codeHash: digest(code), freshSessionHash: digest(secret) });
     return { secret, expiresAt: record.expiresAt };
   }
-  stay(secret: string) {
+  async stay(secret: string) {
+    await this.syntheticDatabase();
     return this.repository.withSession(digest(secret), async (tx, scope, guestId) => {
       const reservation = await tx.reservation.findFirstOrThrow({ where: { id: scope.reservationId, tenantId: scope.tenantId }, select: {
         confirmationCode: true, status: true, checkIn: true, checkOut: true, guest: { select: { firstName: true, lastName: true } }, property: { select: { name: true } }, room: { select: { number: true } }, roomType: { select: { name: true } },
@@ -41,6 +53,7 @@ export class GuestHttpService {
     });
   }
   async create(secret: string, key: string, body: unknown) {
+    await this.syntheticDatabase();
     const input = requestInput(body); const keyHash = digest(key), payloadHash = digest(JSON.stringify(input));
     const result = await this.repository.withSession(digest(secret), async (tx, scope, guestId) => {
       const where = { accessId: scope.accessId, generation: scope.generation, keyHash };
@@ -60,5 +73,5 @@ export class GuestHttpService {
     if (result.notification) await this.requests.publishReservationRequest(result.notification).catch(() => undefined);
     return result.response;
   }
-  logout(secret: string) { return this.repository.revokeSession(digest(secret)); }
+  async logout(secret: string) { await this.syntheticDatabase(); return this.repository.revokeSession(digest(secret)); }
 }

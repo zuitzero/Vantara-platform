@@ -1,5 +1,5 @@
 import { enabled, trustedOrigin, requireGuestTransport, GuestRateLimit, guestSecret, csrf, checkCsrf } from './guest-http.security';
-import { requestInput } from './guest-http.service';
+import { GuestHttpService, requestInput } from './guest-http.service';
 import { randomBytes } from 'node:crypto';
 describe('Guest HTTP fail-closed contracts', () => {
   const env = { NODE_ENV: 'test', VANTARA_ENV: 'local', CONNECT_GUEST_HTTP: 'synthetic-https-only', CONNECT_GUEST_POLICY_ACK: 'candidate-v1-synthetic-only', WEB_ORIGIN: 'https://localhost:3443' };
@@ -23,6 +23,12 @@ describe('Guest HTTP fail-closed contracts', () => {
     expect(guestSecret({ rawHeaders: ['Cookie', `vantara_session=ignored; __Host-vantara_guest=${secret}`] } as any)).toBe(secret);
     expect(() => checkCsrf({ headers: { 'x-vantara-csrf': 'é'.repeat(43) } } as any, secret)).toThrow('Guest request denied.');
     expect(() => checkCsrf({ headers: { 'x-vantara-csrf': csrf(secret) } } as any, secret)).not.toThrow();
+  });
+  it('refuses an incorrectly targeted database even with all local opt-ins, before writes', async () => {
+    const db = { $queryRaw: jest.fn().mockResolvedValue([{ database: 'unapproved', role: 'admin' }]), $transaction: jest.fn() };
+    const service = new GuestHttpService(db as any, {} as any);
+    await expect(service.issue('synthetic', 'synthetic')).rejects.toThrow('GUEST_ACCESS_DENIED');
+    expect(db.$transaction).not.toHaveBeenCalled();
   });
   it('bounds rate memory, attempts and expiry without using guest secrets as keys', () => {
     const rate = new GuestRateLimit();
