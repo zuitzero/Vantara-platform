@@ -9,6 +9,7 @@
     "test": "jest --runInBand",
     "demo:setup": "node scripts/pilot01.cjs setup",
     "demo:reset": "node scripts/pilot01.cjs reset",
+    "test:connect-db": "CONNECT_SEC02_DB_TEST=1 jest --runInBand --runTestsByPath src/connect/persistence/guest-access.postgres.spec.ts",
     "test:pilot": "PILOT01_INTEGRATION=1 jest --runInBand --runTestsByPath src/connect/pilot01.integration.spec.ts"
   },
   "dependencies": {
