@@ -318,6 +318,8 @@ model Property {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@index([tenantId])
+  guestBootstraps GuestConnectBootstrap[]
+  guestSessions GuestConnectSession[]
   staffProfiles OperationalStaff[]
   @@unique([id, tenantId])
   @@unique([tenantId, name])
@@ -379,6 +381,8 @@ model Guest {
   room Room? @relation(fields: [roomId], references: [id], onDelete: SetNull)
   reservations Reservation[]
   guestRequests GuestRequest[]
+  connectBootstraps GuestConnectBootstrap[]
+  connectSessions GuestConnectSession[]
   preferences GuestPreference[]
   tags GuestTag[]
   crmNotes GuestNote[]
@@ -473,6 +477,10 @@ model GuestConnectAccess {
   tenantId String
   reservationId String @unique
   tokenHash String @unique
+  generation Int @default(1)
+  bootstraps GuestConnectBootstrap[]
+  guestSessions GuestConnectSession[]
+  requestClaims GuestConnectIdempotency[]
   expiresAt DateTime
   revokedAt DateTime?
   lastUsedAt DateTime?
@@ -481,6 +489,7 @@ model GuestConnectAccess {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   reservation Reservation @relation(fields: [reservationId, tenantId], references: [id, tenantId], onDelete: Cascade)
   @@unique([reservationId, tenantId])
+  @@unique([id, tenantId, reservationId])
   @@index([tenantId, expiresAt])
   @@map("guest_connect_access")
 }
@@ -612,6 +621,8 @@ model GuestRequest {
   @@index([propertyId, status])
   @@index([guestId, createdAt])
   @@index([roomId, createdAt])
+  guestIdempotencyResults GuestConnectIdempotency[]
+  @@unique([id, tenantId, reservationId])
   @@map("guest_requests")
 }
 
@@ -666,4 +677,68 @@ model NotificationRead {
   @@id([notificationId, userId])
   @@index([tenantId, userId])
   @@map("notification_reads")
+}
+
+// Inactive CONNECT-SEC-02 persistence. No public provider/controller registration.
+model GuestConnectBootstrap {
+  id String @id @default(cuid())
+  codeHash String @unique
+  accessId String
+  tenantId String
+  reservationId String
+  propertyId String
+  guestId String
+  generation Int
+  legacyTokenHash String
+  issuedAt DateTime
+  expiresAt DateTime
+  consumedAt DateTime?
+  revokedAt DateTime?
+  access GuestConnectAccess @relation(fields: [accessId, tenantId, reservationId], references: [id, tenantId, reservationId], onDelete: Cascade, onUpdate: Restrict)
+  property Property @relation(fields: [propertyId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  guest Guest @relation(fields: [guestId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  session GuestConnectSession?
+  @@index([accessId, generation, expiresAt])
+  @@map("guest_connect_bootstraps")
+}
+
+model GuestConnectSession {
+  id String @id @default(cuid())
+  secretHash String @unique
+  bootstrapId String @unique
+  accessId String
+  tenantId String
+  reservationId String
+  propertyId String
+  guestId String
+  generation Int
+  legacyTokenHash String
+  createdAt DateTime
+  lastSeenAt DateTime
+  expiresAt DateTime
+  revokedAt DateTime?
+  bootstrap GuestConnectBootstrap @relation(fields: [bootstrapId], references: [id], onDelete: Cascade, onUpdate: Restrict)
+  access GuestConnectAccess @relation(fields: [accessId, tenantId, reservationId], references: [id, tenantId, reservationId], onDelete: Cascade, onUpdate: Restrict)
+  property Property @relation(fields: [propertyId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  guest Guest @relation(fields: [guestId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  @@index([accessId, generation, revokedAt, expiresAt])
+  @@map("guest_connect_sessions")
+}
+
+// Reservation of scope/result constraints only; no request execution/idempotency API yet.
+model GuestConnectIdempotency {
+  id String @id @default(cuid())
+  accessId String
+  tenantId String
+  reservationId String
+  generation Int
+  keyHash String
+  payloadHash String
+  resultRequestId String?
+  createdAt DateTime @default(now())
+  access GuestConnectAccess @relation(fields: [accessId, tenantId, reservationId], references: [id, tenantId, reservationId], onDelete: Cascade, onUpdate: Restrict)
+  result GuestRequest? @relation(fields: [resultRequestId, tenantId, reservationId], references: [id, tenantId, reservationId], onDelete: Restrict, onUpdate: Restrict)
+  @@unique([accessId, generation, keyHash])
+  @@index([resultRequestId, tenantId, reservationId])
+  @@map("guest_connect_idempotency")
 }

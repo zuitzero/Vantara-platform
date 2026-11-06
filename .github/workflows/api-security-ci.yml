@@ -81,6 +81,19 @@ jobs:
       - name: Build API
         run: pnpm --filter @vantara/api build
 
+      - name: Verify CONNECT-SEC-02 with distinct PostgreSQL connections
+        env:
+          NODE_ENV: test
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGUSER: vantara
+          PGPASSWORD: vantara
+          DATABASE_URL: postgresql://vantara:vantara@127.0.0.1:5432/vantara_connect_sec02?schema=public
+        run: |
+          createdb vantara_connect_sec02
+          pnpm --filter @vantara/api exec prisma migrate deploy
+          node apps/api/scripts/connect-sec02-ci.cjs
+
       - name: Verify synthetic Pilot 01 against isolated PostgreSQL
         env:
           NODE_ENV: test
