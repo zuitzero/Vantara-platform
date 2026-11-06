@@ -41,7 +41,7 @@ async function main() {
     if (result.status !== 0 || result.error) throw new Error();
     const snapshot = async () => {
       const rows = [];
-      for (const model of Prisma.dmmf.datamodel.models) rows.push(await admin[model.name[0].toLowerCase() + model.name.slice(1)].findMany({ orderBy: { id: 'asc' } }));
+      for (const model of Prisma.dmmf.datamodel.models) rows.push((await admin[model.name[0].toLowerCase() + model.name.slice(1)].findMany()).map(row => JSON.stringify(row)).sort());
       return createHash('sha256').update(JSON.stringify(rows)).digest('hex');
     };
     const before = await snapshot();
