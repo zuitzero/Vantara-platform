@@ -81,7 +81,7 @@ jobs:
       - name: Build API
         run: pnpm --filter @vantara/api build
 
-      - name: Verify CONNECT-SEC-02 with distinct PostgreSQL connections
+      - name: Verify Connect persistence and gated Nest HTTPS on PostgreSQL
         env:
           NODE_ENV: test
           PGHOST: 127.0.0.1
