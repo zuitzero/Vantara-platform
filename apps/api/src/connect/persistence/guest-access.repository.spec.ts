@@ -27,5 +27,8 @@ describe('Inactive repository fail-closed boundaries', () => {
     db.$transaction.mockReset().mockRejectedValue({ code: 'P2002', message: 'PRIVATE_ERROR_CANARY' });
     await expect(repo.advanceGeneration('hotel-a', 'stay-a')).rejects.toThrow('GUEST_ACCESS_DENIED');
     expect(db.$transaction).toHaveBeenCalledTimes(1);
+    db.$transaction.mockReset().mockRejectedValue(null);
+    await expect(repo.advanceGeneration('hotel-a', 'stay-a')).rejects.toThrow('GUEST_ACCESS_DENIED');
+    expect(db.$transaction).toHaveBeenCalledTimes(1);
   });
 });

@@ -29,7 +29,7 @@ export class PostgresGuestAccessRepository implements GuestExchangeRepository {
           return run(tx);
         }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, maxWait: 2000, timeout: 10000 });
       } catch (error) {
-        const e = error as { code?: string; meta?: { code?: string } };
+        const e = (error && typeof error === 'object' ? error : {}) as { code?: string; meta?: { code?: string } };
         if (attempt < 2 && (e.code === 'P2034' || ['40001', '40P01'].includes(e.meta?.code ?? ''))) continue;
         // No raw Prisma/SQL errors, query parameters, URLs or secrets escape this boundary.
         return deny();

@@ -151,6 +151,19 @@ integration('CONNECT-SEC-02 real PostgreSQL18: distinct backend connections', ()
     expect((await a.room.findUniqueOrThrow({ where: { id: 'cs02-a-room' } })).occupancyStatus).toBe('VACANT');
     expect(await a.housekeepingTask.count()).toBe(1);
   });
+  it.each(['revoke', 'rotate'])('invalidates a session when actual legacy %s commits after the queued exchange', async operation => {
+    const code = await mint(), hash = fingerprint(); const legacy = new ConnectService(b as any, {} as any);
+    expect(await queue('access', () => exchange(repoA, code.codeHash, hash), () => operation === 'revoke' ? legacy.revoke(tenant, res) : legacy.issue(tenant, res))).toEqual([true, true]);
+    expect(await a.guestConnectSession.count()).toBe(1);
+    await expect(repoA.checkSession(hash)).rejects.toThrow(GuestProtocolDenied);
+  });
+  it('invalidates a session when actual checkout commits after the queued exchange', async () => {
+    const code = await mint(), hash = fingerprint(); const service = new ReservationsService(b as any, new RoomReadinessService(b as any));
+    expect(await queue('reservation', () => exchange(repoA, code.codeHash, hash), () => service.updateStatusForTenant(tenant, res, 'CHECKED_OUT'))).toEqual([true, true]);
+    expect(await a.guestConnectSession.count()).toBe(1);
+    await expect(repoA.checkSession(hash)).rejects.toThrow(GuestProtocolDenied);
+    expect((await a.reservation.findUniqueOrThrow({ where: { id: res } })).status).toBe('CHECKED_OUT');
+  });
   it('retains committed session history when rotation follows exchange, but prevents further use', async () => {
     const hash = fingerprint(); await exchange(repoA, (await mint()).codeHash, hash); await repoB.advanceGeneration(tenant, res);
     expect(await a.guestConnectSession.count()).toBe(1); await expect(repoA.checkSession(hash)).rejects.toThrow(GuestProtocolDenied);
