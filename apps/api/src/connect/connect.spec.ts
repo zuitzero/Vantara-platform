@@ -18,6 +18,8 @@ function fixture() {
     },
     guestRequest: { findMany: jest.fn().mockResolvedValue([]) },
   };
+  db.$transaction = (run: any) => run(db);
+  db.$queryRaw = jest.fn().mockResolvedValue([{ id: reservation.id }]);
   const requests:any = { createForReservationGuest: jest.fn().mockResolvedValue({ id: 'req-a' }) };
   return { db, requests, reservation, service: new ConnectService(db, requests) };
 }

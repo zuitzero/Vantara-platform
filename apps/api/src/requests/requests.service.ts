@@ -3,6 +3,7 @@ import { AuditAction } from '@prisma/client';
 import { RoomReadinessService } from '../room-readiness/room-readiness.service';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import {
+  Prisma,
   GuestRequestCategory,
   GuestRequestPriority,
   GuestRequestStatus,
@@ -117,58 +118,63 @@ export class RequestsService {
   }
 
   async createForReservationGuest(tenantId: string, reservationId: string, input: CreateGuestRequestDto) {
-    const reservation = await this.prisma.reservation.findFirst({
-      where: { id: reservationId, tenantId },
-      include: { guest: true, property: true, room: true },
+    const request = await this.readiness.transaction(tx => this.createReservationRequestInTransaction(tx, tenantId, reservationId, input));
+    await this.publishReservationRequest(request);
+    return request;
+  }
+
+  // Trusted internal entry point. Caller owns authorization, locks, transaction and retries.
+  async createReservationRequestInTransaction(tx: Prisma.TransactionClient, tenantId: string, reservationId: string, input: CreateGuestRequestDto) {
+    const reservation = await tx.reservation.findFirst({ where: { id: reservationId, tenantId }, include: { guest: true, property: true, room: true } });
+    if (!reservation || reservation.guest.tenantId !== tenantId || reservation.property.tenantId !== tenantId) throw new BadRequestException('Reservation does not belong to the active hotel.');
+    const created = await tx.guestRequest.create({
+      data: {
+        tenantId,
+        guestId: reservation.guestId,
+        propertyId: reservation.propertyId,
+        reservationId: reservation.id,
+        roomId: reservation.roomId,
+        title: input.title.trim(),
+        message: input.message.trim(),
+        category: input.category,
+        priority: input.priority ?? GuestRequestPriority.NORMAL,
+        guestCount: input.guestCount ?? 1,
+      },
+      include: { guest: true, property: true, room: { include: { roomType: true } } },
     });
-    if (!reservation) throw new BadRequestException('Reservation does not belong to the active hotel.');
-    const request = await this.readiness.transaction(async tx => {
-      const created = await tx.guestRequest.create({
+    if (reservation.roomId && input.category === GuestRequestCategory.HOUSEKEEPING) {
+      const task = await tx.housekeepingTask.create({
         data: {
-          tenantId,
-          guestId: reservation.guestId,
-          propertyId: reservation.propertyId,
-          reservationId: reservation.id,
-          roomId: reservation.roomId,
-          title: input.title.trim(),
-          message: input.message.trim(),
-          category: input.category,
-          priority: input.priority ?? GuestRequestPriority.NORMAL,
-          guestCount: input.guestCount ?? 1,
+          tenantId, propertyId: reservation.propertyId, roomId: reservation.roomId,
+          title: input.title.trim(), blocksRoom: false,
+          notes: `Guest request ${created.id}: ${input.message.trim()}`,
+          priority: this.toOperationsPriority(input.priority),
         },
-        include: { guest: true, property: true, room: { include: { roomType: true } } },
       });
-      if (reservation.roomId && input.category === GuestRequestCategory.HOUSEKEEPING) {
-        const task = await tx.housekeepingTask.create({
-          data: {
-            tenantId, propertyId: reservation.propertyId, roomId: reservation.roomId,
-            title: input.title.trim(), blocksRoom: false,
-            notes: `Guest request ${created.id}: ${input.message.trim()}`,
-            priority: this.toOperationsPriority(input.priority),
-          },
-        });
-        await auditMutation(tx, tenantId, AuditAction.HOUSEKEEPING_CREATED, 'housekeeping', task.id, { roomId: reservation.roomId, blocksRoom: false, reason: 'GUEST_REQUEST' });
-      }
-      if (reservation.roomId && input.category === GuestRequestCategory.MAINTENANCE) {
-        const ticket = await tx.maintenanceTicket.create({
-          data: {
-            tenantId, propertyId: reservation.propertyId, roomId: reservation.roomId,
-            title: input.title.trim(), description: input.message.trim(), blocksRoom: false,
-            priority: this.toOperationsPriority(input.priority),
-          },
-        });
-        await auditMutation(tx, tenantId, AuditAction.MAINTENANCE_CREATED, 'maintenance', ticket.id, { roomId: reservation.roomId, blocksRoom: false, reason: 'GUEST_REQUEST' });
-      }
-      if (reservation.roomId && (input.category === GuestRequestCategory.HOUSEKEEPING || input.category === GuestRequestCategory.MAINTENANCE)) {
-        await this.readiness.recalculate(tx, tenantId, reservation.roomId);
-      }
-      return created;
-    });
+      await auditMutation(tx, tenantId, AuditAction.HOUSEKEEPING_CREATED, 'housekeeping', task.id, { roomId: reservation.roomId, blocksRoom: false, reason: 'GUEST_REQUEST' });
+    }
+    if (reservation.roomId && input.category === GuestRequestCategory.MAINTENANCE) {
+      const ticket = await tx.maintenanceTicket.create({
+        data: {
+          tenantId, propertyId: reservation.propertyId, roomId: reservation.roomId,
+          title: input.title.trim(), description: input.message.trim(), blocksRoom: false,
+          priority: this.toOperationsPriority(input.priority),
+        },
+      });
+      await auditMutation(tx, tenantId, AuditAction.MAINTENANCE_CREATED, 'maintenance', ticket.id, { roomId: reservation.roomId, blocksRoom: false, reason: 'GUEST_REQUEST' });
+    }
+    if (reservation.roomId && (input.category === GuestRequestCategory.HOUSEKEEPING || input.category === GuestRequestCategory.MAINTENANCE)) {
+      await this.readiness.recalculate(tx, tenantId, reservation.roomId);
+    }
+    return created;
+  }
+
+  async publishReservationRequest(request: { tenantId: string; guestId: string; id: string; roomId: string | null; title: string; message: string; priority: GuestRequestPriority }) {
+    const tenantId = request.tenantId;
     await Promise.all(guestRequestCreatedEvent({
       tenantId, guestId: request.guestId, requestId: request.id, roomId: request.roomId,
       title: request.title, message: request.message, priority: request.priority,
     }).map(event => this.notifications.publish(event)));
-    return request;
   }
 
   async updateForTenant(tenantId: string, requestId: string, input: UpdateGuestRequestDto) {
