@@ -1,3 +1,4 @@
+import { guestBrowserTests } from '../http/guest-browser.postgres';
 import { guestHttpTests } from '../http/guest-http.postgres';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
@@ -212,5 +213,6 @@ integration('CONNECT-SEC-02 real PostgreSQL18: distinct backend connections', ()
     await expect(a.guestConnectIdempotency.update({ where: { id: claim.id }, data: { resultRequestId: foreign.id } })).rejects.toThrow();
   });
   guestHttpTests(() => ({ a, b, blocker, monitor, pidA, pidB, queue, blocked, mint }));
+  if (process.env.CONNECT_SEC04_PLAYWRIGHT) guestBrowserTests(() => a);
 
 });

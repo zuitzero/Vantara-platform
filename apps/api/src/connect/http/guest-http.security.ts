@@ -34,7 +34,7 @@ export function checkCsrf(req: Request, secret: string) {
   if (typeof supplied !== 'string' || ! /^[A-Za-z0-9_-]{43}$/.test(supplied) || !timingSafeEqual(Buffer.from(supplied), Buffer.from(expected))) deny();
 }
 function canonicalRoute(req: Request) {
-  return [['POST', '/api/guest-connect/session'], ['GET', '/api/guest-connect/stay'], ['POST', '/api/guest-connect/requests'], ['POST', '/api/guest-connect/logout']].some(([method, path]) => req.method === method && req.originalUrl === path) || (req.method === 'POST' && /^\/api\/connect-admin\/reservations\/[^/?]+\/bootstrap$/.test(req.originalUrl));
+  return [['POST', '/api/guest-connect/session'], ['GET', '/api/guest-connect/stay'], ['POST', '/api/guest-connect/stay'], ['POST', '/api/guest-connect/requests'], ['POST', '/api/guest-connect/logout']].some(([method, path]) => req.method === method && req.originalUrl === path) || (req.method === 'POST' && /^\/api\/connect-admin\/reservations\/[^/?]+\/bootstrap$/.test(req.originalUrl));
 }
 export function requireGuestTransport(req: Request) {
   if (!enabled()) throw new NotFoundException();
@@ -75,7 +75,6 @@ export function configureGuestHttp(app: NestExpressApplication) {
     try {
       requireGuestTransport(req);
       const path = req.originalUrl;
-      if (![['POST', '/api/guest-connect/session'], ['GET', '/api/guest-connect/stay'], ['POST', '/api/guest-connect/requests'], ['POST', '/api/guest-connect/logout']].some(([method, url]) => req.method === method && path === url) && !(req.method === 'POST' && /^\/api\/connect-admin\/reservations\/[^/]+\/bootstrap$/.test(path))) return res.status(404).json({ message: 'Not found.' });
       if (!limit.take(`${req.socket.remoteAddress}:${req.method}:${path.includes('connect-admin') ? 'bootstrap' : path}`)) return res.status(429).set('Retry-After', '60').json({ message: 'Guest rate limit.' });
       next();
     } catch (error) { res.status(error instanceof NotFoundException ? 404 : 403).json({ message: 'Guest boundary unavailable.' }); }
