@@ -3,7 +3,9 @@ import { Test } from '@nestjs/testing';
 import { randomBytes, createHash, randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { AppModule } from '../app.module';
+import { securityMiddleware } from '../security/cloud-security';
 import { PrismaService } from '../prisma/prisma.service';
+const { inspectDatabase, macTarget, checkHttp } = require('../../scripts/pilot01-check.cjs');
 // No compiler/build changes for the development-only fixture tool.
 const { configuration, provision, ids, MARKER } = require('../../scripts/pilot01.cjs');
 const integration = process.env.PILOT01_INTEGRATION === '1' ? describe : describe.skip;
@@ -29,6 +31,7 @@ integration('Pilot 01 real PostgreSQL / HTTP regression', () => {
     const module = await Test.createTestingModule({ imports: [AppModule] }).overrideProvider(PrismaService).useValue(db).compile();
     app = module.createNestApplication({ rawBody: true });
     app.useLogger({ log: (...items: unknown[]) => logs.push(items.map(String).join(' ')), error: (...items: unknown[]) => logs.push(items.map(String).join(' ')), warn: (...items: unknown[]) => logs.push(items.map(String).join(' ')) });
+    app.use(securityMiddleware);
     app.setGlobalPrefix('api'); app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
     await app.listen(0, '127.0.0.1'); base = await app.getUrl();
     const a = await api('auth/login', 'POST', { email: ids('a').email, password });
@@ -39,6 +42,30 @@ integration('Pilot 01 real PostgreSQL / HTTP regression', () => {
     check(aStay && bStay, 'DEMO_STAYS_MISSING'); reservationA = aStay.id; reservationB = bStay.id;
   }, 30000);
   afterAll(async () => { await app?.close(); await db?.$disconnect(); process.env = envBefore; });
+
+  it('verifies the prefixed health response and anonymous session boundary via the diagnostic', async () => {
+    check(await checkHttp(base) === 'HEALTH_OK_ANONYMOUS_DENIED', 'PILOT_HTTP_DIAGNOSTIC');
+    check((await fetch(base + '/health')).status === 404, 'UNPREFIXED_HEALTH_ROUTE');
+  });
+
+  it('checks fixture login readiness on PostgreSQL without creating sessions or changing accounts', async () => {
+    // The disposable Actions service maps loopback to a container address.
+    const [server] = await db.$queryRaw<{ port: number; address: string }[]>`
+      SELECT inet_server_port() AS port, host(inet_server_addr()) AS address
+    `;
+    const snapshot = async () => JSON.stringify([
+      await db.user.findMany({ orderBy: { id: 'asc' } }),
+      await db.session.findMany({ orderBy: { id: 'asc' } }),
+      await db.reservation.findMany({ orderBy: { id: 'asc' } }),
+      await db.guestConnectAccess.findMany({ orderBy: { id: 'asc' } }),
+    ]);
+    const before = await snapshot();
+    const valid = await inspectDatabase(db, { ...server, password });
+    const invalid = await inspectDatabase(db, { ...server, password: randomBytes(24).toString('hex') });
+    check(valid.every((value: string) => value === 'READY_PASSWORD_MATCH'), 'PILOT_PASSWORD_CHECK_FAILED');
+    check(invalid.every((value: string) => value === 'PASSWORD_MISMATCH'), 'PILOT_WRONG_PASSWORD_ACCEPTED');
+    check(before === await snapshot(), 'PILOT_DIAGNOSTICS_MUTATED_DATA');
+  });
 
   it('setup is idempotent; reset appends fresh stays and revokes old links without deleting history', async () => {
     const count = await db.reservation.count(); const users = await db.user.findMany({ select: { passwordHash: true } });
@@ -153,5 +180,11 @@ integration('Pilot 01 real PostgreSQL / HTTP regression', () => {
 describe('Pilot 01 pre-connection safety guards', () => {
   const env = { NODE_ENV: 'test', PILOT01_DEMO: 'synthetic-local-only', DATABASE_URL: 'postgresql://vantara_pilot01_demo@localhost:5432/vantara_pilot01?schema=public', PILOT01_PASSWORD: randomBytes(24).toString('hex') };
   it.each([{ NODE_ENV: 'production' }, { NODE_ENV: '' }, { PILOT01_DEMO: '' }, { PILOT01_PASSWORD: '' }, { DATABASE_URL: 'postgresql://vantara_pilot01_demo@remote.example/vantara_pilot01' }, { DATABASE_URL: 'postgresql://vantara_pilot01_demo@localhost/vantara' }, { DATABASE_URL: 'postgresql://vantara_pilot01_demo@localhost/vantara_pilot01?host=production.example' }, { DATABASE_URL: 'postgresql://vantara_pilot01_demo@localhost/vantara_pilot01?schema=production' }, { STRIPE_SECRET_KEY: 'not-a-real-key' }, { PGHOST: 'remote.example' }, { PGSERVICE: 'production' }, { PGOPTIONS: '-c search_path=production' }, { PRISMA_ACCELERATE_URL: 'https://remote.example' }, { DATABASE_URL: 'postgresql://admin@localhost/vantara_pilot01' }, { DATABASE_URL: 'postgresql://vantara_pilot01_demo@localhost/vantara_pilot01#other' }])('rejects unsafe configuration before connection (%j)', change => { expect(() => configuration({ ...env, ...change })).toThrow(); });
+  it('restricts Mac checks to the configured local Pilot endpoint before connecting', () => {
+    const mac = { ...env, VANTARA_ENV: 'local', DATABASE_URL: 'postgresql://vantara_pilot01_demo:synthetic@localhost:55432/vantara_pilot01?schema=public' };
+    expect(macTarget(mac).hostname).toBe('127.0.0.1');
+    expect(() => macTarget({ ...mac, DATABASE_URL: env.DATABASE_URL })).toThrow();
+    expect(() => macTarget({ ...mac, VANTARA_ENV: 'staging' })).toThrow();
+  });
   it('accepts explicit synthetic local development/test only', () => { expect(configuration(env).url).toBe(env.DATABASE_URL.replace('localhost', '127.0.0.1')); });
 });

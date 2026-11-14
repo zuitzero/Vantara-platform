@@ -4,14 +4,18 @@ const { randomBytes, randomUUID, scryptSync, createHash, timingSafeEqual } = req
 const { DATABASE_ROLE, connectionSafety, emptyDatabase, syntheticGraph } = require('./pilot01-safety.cjs');
 const MARKER = 'VANTARA_PILOT01_SYNTHETIC_V1';
 const ids = side => ({ tenant: `pilot01-demo-${side}`, user: `pilot01-admin-${side}`, email: `admin-${side}@pilot01.example.invalid`, name: `DEMO Pilot 01 Hotel ${side.toUpperCase()}` });
-function configuration(env) {
+function databaseConfiguration(env) {
   if (!['development', 'test'].includes(env.NODE_ENV) || env.PILOT01_DEMO !== 'synthetic-local-only') throw new Error('DEMO_ENV_REQUIRED');
   let url; try { url = new URL(env.DATABASE_URL); } catch { throw new Error('DEMO_DATABASE_REQUIRED'); }
   if (url.protocol !== 'postgresql:' || !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) || url.pathname !== '/vantara_pilot01' || url.username !== DATABASE_ROLE || url.hash || [...url.searchParams].some(([key, value]) => key !== 'schema' || value !== 'public')) throw new Error('DEMO_DATABASE_REJECTED');
   if (Object.entries(env).some(([key, value]) => /^(PG|PRISMA_)/.test(key) && value)) throw new Error('DEMO_CONNECTION_OVERRIDE_REJECTED');
-  if (!env.PILOT01_PASSWORD || env.PILOT01_PASSWORD.length < 16 || env.PILOT01_PASSWORD.length > 128) throw new Error('DEMO_PASSWORD_REQUIRED');
   if (Object.entries(env).some(([key, value]) => /^STRIPE_/.test(key) && value)) throw new Error('DEMO_EXTERNAL_BILLING_FORBIDDEN');
   if (url.hostname === 'localhost') url.hostname = '127.0.0.1'; // Avoid DNS/hosts overrides; this still cannot detect a loopback tunnel.
+  return url;
+}
+function configuration(env) {
+  const url = databaseConfiguration(env);
+  if (!env.PILOT01_PASSWORD || env.PILOT01_PASSWORD.length < 16 || env.PILOT01_PASSWORD.length > 128) throw new Error('DEMO_PASSWORD_REQUIRED');
   return { url: url.toString(), password: env.PILOT01_PASSWORD };
 }
 function passwordHash(password) {
@@ -77,4 +81,4 @@ async function main() {
   } finally { try { await db?.$disconnect(); } catch { process.exitCode = 1; } }
 }
 if (require.main === module) void main();
-module.exports = { configuration, provision, ids, MARKER };
+module.exports = { configuration, databaseConfiguration, matches, provision, ids, MARKER };
