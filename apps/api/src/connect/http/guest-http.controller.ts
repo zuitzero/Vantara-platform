@@ -28,6 +28,11 @@ export class GuestHttpController {
   }
   @Get('stay')
   async stay(@Req() req: Request) { const secret = guestSecret(req); return { ...await this.service.stay(secret), csrfToken: csrf(secret) }; }
+  @Post('stay') @HttpCode(200)
+  browserStay(@Req() req: Request, @Body() body: unknown) {
+    empty(body);
+    return this.stay(req);
+  }
   @Post('requests') @HttpCode(200)
   create(@Req() req: Request, @Body() body: unknown) {
     const secret = guestSecret(req); checkCsrf(req, secret);

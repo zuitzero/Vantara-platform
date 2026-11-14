@@ -36,6 +36,7 @@ async function main() {
     const tls = spawnSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key, '-out', cert, '-days', '1', '-subj', '/CN=localhost', '-addext', 'subjectAltName=IP:127.0.0.1,DNS:localhost'], { stdio: 'ignore' });
     if (tls.status !== 0) throw new Error();
     chmodSync(key, 0o600);
+    env.NODE_EXTRA_CA_CERTS = cert;
     env.CONNECT_SEC03_TLS_KEY = key; env.CONNECT_SEC03_TLS_CERT = cert;
     const result = spawnSync('pnpm', ['--filter', '@vantara/api', 'test:connect-db'], { env, stdio: 'inherit' });
     if (result.status !== 0 || result.error) throw new Error();

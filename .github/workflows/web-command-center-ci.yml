@@ -81,5 +81,6 @@ jobs:
           for (const route of ['/page', '/onboarding/page', '/connect/[token]/page']) {
             if (!routes.includes(route)) throw new Error('Missing Next.js app route: ' + route + '; found: ' + routes.join(', '));
           }
+          if (!routes.includes('/connect/route')) throw new Error('Missing guest shell Route Handler');
           console.log('Verified guest Connect, onboarding and home routes');
           NODE
