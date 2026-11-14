@@ -61,7 +61,7 @@ export NEXT_TELEMETRY_DISABLED=1
 pnpm --filter @vantara/web dev --hostname 127.0.0.1 --port 3000
 ```
 
-The normal Pilot API selects a loopback bind when started with the local Pilot flag above. The Web command supplies its loopback bind explicitly. Recheck the listeners with the constrained `lsof` command before opening a browser.
+The normal Pilot API selects a loopback bind when started with the local Pilot flag above. The Web command supplies its loopback bind explicitly. Next development access logs omit the legacy Connect paths. Recheck the listeners with the constrained `lsof` command before opening a browser.
 
 ## Terminal C · read-only HTTP check
 
