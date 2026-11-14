@@ -123,6 +123,7 @@ export function startGuestShell() {
       }
       const { reservation, requests, csrfToken } = await response.json();
       if (lifetime.signal.aborted) return;
+      if (csrf && csrf !== csrfToken) resetRequest(true);
       csrf = csrfToken;
       details.textContent = reservation.property.name + ' · ' + reservation.confirmationCode +
         (reservation.room ? ' · Room ' + reservation.room.number : '');
@@ -191,6 +192,7 @@ export function startGuestShell() {
         if (response.status === 401 || response.status === 403) {
           clearStay();
           await refresh();
+          if (!lifetime.signal.aborted && !stay.hidden) status.textContent = 'Request declined. Review the details and try again.';
           return;
         }
         if (response.status === 400 || response.status === 409 || response.status === 413) {

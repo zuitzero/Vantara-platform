@@ -4,7 +4,9 @@ const { join } = require('node:path');
 
 async function main() {
   if (process.env.GITHUB_ACTIONS !== 'true' || process.env.CONNECT_GUEST_SHELL !== 'synthetic-https-only' || !process.send) throw new Error();
-  const app = require('next')({ dev: true, dir: join(__dirname, '..'), hostname: '127.0.0.1', quiet: true });
+  const dir = join(__dirname, '..');
+  process.chdir(dir);
+  const app = require('next')({ dev: true, turbopack: true, dir, hostname: '127.0.0.1', quiet: true });
   await app.prepare();
   const handler = app.getRequestHandler();
   const server = createServer((req, res) => {
