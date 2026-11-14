@@ -6,6 +6,10 @@ los correos usan `pilot01.example.invalid`. No se crean tokens durante el setup.
 No hay endpoints nuevos, bypass de login/RBAC, cambios de esquema ni cambios de
 billing. Las cuentas tienen contraseña scrypt compatible con el login existente.
 
+Para iniciar y diagnosticar una base Pilot 01 **ya existente** en el Mac mini, usar
+[el runbook de operación local](PILOT_01_MAC_MINI.md). Esta guía histórica incluye
+operaciones de aprovisionamiento y reset que no forman parte del diagnóstico.
+
 ## Requisitos y setup
 
 - Node 22, pnpm 10.15.0 y PostgreSQL 18 local/deshabilitado para acceso externo.
@@ -165,7 +169,7 @@ pnpm --filter @vantara/api exec prisma generate
 pnpm --filter @vantara/api test
 pnpm --filter @vantara/api build
 pnpm --filter @vantara/web build
-# Solo sobre la misma base exclusiva, ya migrada; conserva datos DEMO anteriores:
+# Solo en una base desechable nueva para CI. Esta suite escribe y revoca enlaces.
 NODE_ENV=test PILOT01_INTEGRATION=1 pnpm --filter @vantara/api test:pilot
 ```
 
