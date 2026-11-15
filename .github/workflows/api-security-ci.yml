@@ -8,6 +8,8 @@ on:
       - 'apps/api/**'
       - 'apps/web/src/app/connect/**'
       - 'apps/web/scripts/connect-browser-next.cjs'
+      - 'apps/web/scripts/showroom-server.cjs'
+      - 'apps/web/next.config.ts'
       - 'docs/PILOT_01_DEMO.md'
       - 'packages/**'
       - 'package.json'
@@ -22,6 +24,8 @@ on:
       - 'apps/api/**'
       - 'apps/web/src/app/connect/**'
       - 'apps/web/scripts/connect-browser-next.cjs'
+      - 'apps/web/scripts/showroom-server.cjs'
+      - 'apps/web/next.config.ts'
       - 'docs/PILOT_01_DEMO.md'
       - 'packages/**'
       - 'package.json'
@@ -118,3 +122,28 @@ jobs:
           createdb vantara_pilot01
           pnpm --filter @vantara/api exec prisma migrate deploy
           node apps/api/scripts/pilot01-ci.cjs
+
+      - name: Install Nginx without starting a default listener
+        run: |
+          printf '#!/bin/sh\nexit 101\n' | sudo tee /usr/sbin/policy-rc.d > /dev/null
+          sudo chmod +x /usr/sbin/policy-rc.d
+          sudo apt-get install -y -qq nginx
+
+      - name: Build Next for the disposable Showroom routing test
+        env:
+          WEB_ORIGIN: https://pilot-staging.example.invalid
+          API_INTERNAL_URL: http://api.staging.internal:3001
+        run: pnpm --filter @vantara/web build
+
+      - name: Verify Showroom gateway and origins against isolated synthetic data
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGUSER: vantara
+          PGPASSWORD: vantara
+          DATABASE_URL: postgresql://vantara:vantara@127.0.0.1:5432/vantara_showroom?schema=public
+          NGINX_BIN: /usr/sbin/nginx
+        run: |
+          createdb vantara_showroom
+          pnpm --filter @vantara/api exec prisma migrate deploy
+          node apps/api/scripts/showroom-ci.cjs

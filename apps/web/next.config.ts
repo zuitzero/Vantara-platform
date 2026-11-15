@@ -1,12 +1,18 @@
 import type { NextConfig } from 'next';
+import { configuration } from '../../infra/staging/showroom-policy.cjs';
 import { webTransport } from './transport-config';
+
+const showroom = configuration(process.env);
+if (showroom && !Reflect.get(globalThis, Symbol.for('vantara.showroom.raw-ingress'))) {
+  throw new Error('SHOWROOM_WEB_ENTRY_REQUIRED');
+}
 
 const { upstream } = webTransport(process.env);
 const config: NextConfig = {
   // Legacy guest access is a bearer in the path. Keep it out of dev access logs.
-  logging: { incomingRequests: { ignore: [/^\/connect\//, /^\/api\/connect\//] } },
+  logging: { incomingRequests: showroom ? false : { ignore: [/^\/connect\//, /^\/api\/connect\//] } },
   async rewrites() {
-    return [{ source: '/api/:path*', destination: `${upstream}/api/:path*` }];
+    return showroom ? [] : [{ source: '/api/:path*', destination: `${upstream}/api/:path*` }];
   },
   async headers() {
     return [{ source: '/:path*', headers: [
