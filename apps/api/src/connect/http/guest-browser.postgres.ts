@@ -10,6 +10,7 @@ import { createServer } from 'node:https';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { AddressInfo } from 'node:net';
+import { AuthService } from '../../auth/auth.service';
 import { AppModule } from '../../app.module';
 import { PrismaService } from '../../prisma/prisma.service';
 import { securityMiddleware } from '../../security/cloud-security';
@@ -18,8 +19,10 @@ import { configureGuestHttp, digest, GUEST_COOKIE } from './guest-http.security'
 import { PostgresGuestAccessRepository } from '../persistence/guest-access.repository';
 import { GUEST_PROTOCOL } from '../protocol/guest-access.contracts';
 
+class AcceptanceCheck extends Error {}
+
 function check(value: unknown, label: string): asserts value {
-  if (!value) throw new Error(label);
+  if (!value) throw new AcceptanceCheck(label);
 }
 
 export function guestBrowserTests(database: () => PrismaClient) {
@@ -152,9 +155,10 @@ export function guestBrowserTests(database: () => PrismaClient) {
 
     function acceptance(label: string, test: () => Promise<void>) {
       it(label, async () => {
-        try { await test(); } catch {
-          // Playwright errors can contain URL fragments, cookies and request data.
-          throw new Error('BROWSER_ACCEPTANCE_FAILED at ' + stage);
+        try { await test(); } catch (error) {
+          // Playwright errors can contain credentials and URLs. Only our fixed checks are safe.
+          const code = error instanceof AcceptanceCheck ? ' (' + error.message + ')' : '';
+          throw new Error('BROWSER_ACCEPTANCE_FAILED at ' + stage + code);
         }
       }, 60000);
     }
@@ -177,20 +181,67 @@ export function guestBrowserTests(database: () => PrismaClient) {
       } });
       secrets.push(password);
       try {
-        stage = 'staff mobile sign-in';
+        stage = 'staff fixture auth and scope';
+        const auth = app.get(AuthService);
+        const proof = await auth.login({ email: user.email, password });
+        secrets.push(proof.token);
+        try {
+          const workspace = await auth.getWorkspace(proof.token);
+          check(workspace.membership.role === 'HOTEL_STAFF' && workspace.tenant.id === 'cs02-a', 'FIXTURE_SCOPE');
+        } finally { await auth.logout(proof.token); }
+
+        stage = 'staff GET onboarding';
         const { tab, context } = await page(true);
         await context.route('**/*', (route: any) => {
           if (new URL(route.request().url()).origin === origin) return route.continue();
           return route.abort();
         });
-        await tab.goto(origin + '/onboarding');
+        const response = (path: string, method: string) => (res: any) =>
+          res.url() === origin + path && res.request().method() === method;
+        const onboardingAuth = tab.waitForResponse(response('/api/auth/me', 'GET')).catch(() => null);
+        const onboarding = await tab.goto(origin + '/onboarding');
+        check(onboarding?.status() === 200, 'ONBOARDING_HTTP_' + onboarding?.status());
+        stage = 'staff onboarding anonymous auth/me';
+        const anonymous = await onboardingAuth;
+        check(anonymous, 'ANONYMOUS_RESPONSE_MISSING');
+        check(anonymous.status() === 401, 'ANONYMOUS_HTTP_' + anonymous.status());
+
+        stage = 'staff email input';
         await tab.getByLabel('Email', { exact: true }).fill(user.email);
+        stage = 'staff password input';
         await tab.getByLabel('Password', { exact: true }).fill(password);
+        stage = 'staff submit and POST login';
+        const observe = (path: string, method: string) => tab.waitForResponse(response(path, method), { timeout: 15000 }).catch(() => null);
+        const login = observe('/api/auth/login', 'POST');
+        const home = observe('/', 'GET');
+        const session = observe('/api/auth/me', 'GET');
         await tab.locator('form').getByRole('button', { name: 'Sign in', exact: true }).click();
-        await tab.getByRole('heading', { name: /Synthetic/ }).waitFor({ timeout: 15000 });
+        const signedIn = await login;
+        check(signedIn, 'LOGIN_RESPONSE_MISSING');
+        check(signedIn.status() === 201, 'LOGIN_HTTP_' + signedIn.status());
+
+        stage = 'staff Set-Cookie attributes';
+        const header = await signedIn.headerValue('set-cookie') ?? '';
+        check(/; HttpOnly(?:;|$)/i.test(header) && /; SameSite=Lax(?:;|$)/i.test(header) &&
+          /; Path=\/(?:;|$)/i.test(header) && !/; Domain=/i.test(header), 'STAFF_COOKIE_ATTRIBUTES');
         const cookie = (await context.cookies(origin)).find((row: any) => row.name === 'vantara_session');
-        check(cookie?.httpOnly && cookie.sameSite === 'Lax', 'STAFF_COOKIE_MISSING');
-        secrets.push(cookie.value);
+        if (cookie) secrets.push(cookie.value);
+        check(cookie?.httpOnly && cookie.sameSite === 'Lax' && cookie.path === '/', 'STAFF_COOKIE_NOT_STORED');
+
+        stage = 'staff navigation to workspace';
+        const document = await home;
+        check(document, 'WORKSPACE_RESPONSE_MISSING');
+        check(document.status() === 200, 'WORKSPACE_HTTP_' + document.status());
+        stage = 'staff workspace auth/me';
+        const authenticated = await session;
+        check(authenticated, 'SESSION_RESPONSE_MISSING');
+        check(authenticated.status() === 200, 'SESSION_HTTP_' + authenticated.status());
+        const who = await authenticated.json();
+        check(who.membership.role === 'HOTEL_STAFF' && who.tenant.id === 'cs02-a', 'BROWSER_SESSION_SCOPE');
+
+        stage = 'staff Command Center render';
+        await tab.getByRole('heading', { name: /Synthetic/ }).waitFor({ timeout: 15000 });
+        check(tab.url() === origin + '/', 'WORKSPACE_DESTINATION');
         const nav = tab.getByRole('navigation', { name: 'Hotel modules' });
         check(!(await nav.getByText('Billing').count()), 'STAFF_BILLING_VISIBLE');
         check(await tab.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'STAFF_MOBILE_OVERFLOW');
