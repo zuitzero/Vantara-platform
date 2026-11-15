@@ -63,6 +63,7 @@ test('real Nginx validates the generated Showroom config with inert loopback ups
   const dir = mkdtempSync(join(tmpdir(), 'showroom-nginx-config-'));
   try {
     const config = renderShowroom(example)
+      .replace('error_log /dev/null crit;', 'error_log stderr notice;')
       .replaceAll('listen 8080', 'listen 127.0.0.1:38080')
       .replaceAll(example.webUpstream, 'http://127.0.0.1:3000')
       .replaceAll(example.apiUpstream, 'http://127.0.0.1:3001');
