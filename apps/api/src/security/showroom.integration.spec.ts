@@ -190,14 +190,28 @@ integration('Showroom real Nginx, Next, Nest and disposable PostgreSQL', () => {
     secrets.push(credential);
     await writeFile(join(dir, 'showroom-ingress.inc'),
       'proxy_set_header X-Vantara-Showroom-Ingress "' + credential + '";\n', { mode: 0o600 });
+    const validate = spawn(process.env.NGINX_BIN || 'nginx', ['-t', '-p', dir + '/', '-c', 'nginx.conf'],
+      { stdio: ['ignore', 'pipe', 'pipe'] });
+    const diagnostic: Buffer[] = [];
+    validate.stderr!.on('data', data => diagnostic.push(data));
+    const [syntaxExit] = await once(validate, 'close');
+    if (syntaxExit !== 0) {
+      const summary = Buffer.concat(diagnostic).toString();
+      const line = summary.match(/nginx\.conf:(\d+)/)?.[1] ?? 'unknown';
+      const known = ['unknown directive', 'duplicate', 'invalid number of arguments', 'invalid parameter',
+        'pcre2_compile', 'pcre_compile', 'cannot be inside', 'host not found', 'shared memory zone'];
+      throw new Error('SHOWROOM_NGINX_CONFIG ' + line + ' ' + (known.find(value => summary.includes(value)) ?? 'other'));
+    }
     nginx = runNginx();
+    let observed: number | undefined;
     for (let attempt = 0; attempt < 80; attempt++) {
       if (nginx.exitCode !== null) break;
       const response = await call(gatewayPort, '/api/health').catch(() => null);
-      if (response?.status === status) return;
+      observed = response?.status;
+      if (observed === status) return;
       await new Promise(done => setTimeout(done, 50));
     }
-    throw new Error('SHOWROOM_GATEWAY_START_FAILED');
+    throw new Error('SHOWROOM_GATEWAY_START_FAILED expected=' + status + ' status=' + observed + ' exit=' + nginx.exitCode);
   }
 
   async function stop(child: ChildProcess | undefined) {
