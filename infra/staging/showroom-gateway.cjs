@@ -7,10 +7,10 @@ function renderShowroom(config) {
   const host = new URL(config.publicOrigin).host;
   const map = routes.map(([method, pattern, service]) => `    "~^${method}:${pattern}$" ${service};`).join('\n');
   const prefix = baseline.slice(0, baseline.indexOf('  server { listen 8080 default_server;'))
+    .replace('http {', 'http {\n  map_hash_bucket_size 128;')
     .replace('  limit_req_zone $binary_remote_addr zone=login_ip:1m rate=2r/m;', '');
   const login = 'POST:/api/auth/login';
   return `${prefix}
-  map_hash_bucket_size 128;
   map "$request_method:$request_uri" $showroom_target {
     default deny;
 ${map}
