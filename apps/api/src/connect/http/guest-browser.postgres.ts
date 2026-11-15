@@ -78,6 +78,47 @@ export function guestBrowserTests(database: () => PrismaClient) {
       await app.listen(0, '127.0.0.1');
       origin = await app.getUrl();
 
+      // Next dev sends React Flight debugging frames over its HMR WebSocket.
+      // Only this disposable, same-origin path reaches the loopback Next listener.
+      app.getHttpServer().on('upgrade', (incoming: import('node:http').IncomingMessage, socket: import('node:net').Socket, head: Buffer) => {
+        if (!incoming.url?.startsWith('/_next/hmr')) return;
+        if (!nextPort || !/^\/_next\/hmr\?id=[A-Za-z0-9_-]{1,100}$/.test(incoming.url) ||
+            incoming.headers.host !== new URL(origin).host || incoming.headers.origin !== origin ||
+            incoming.headers.upgrade?.toLowerCase() !== 'websocket') {
+          socket.destroy();
+          return;
+        }
+        const upstream = request({
+          hostname: '127.0.0.1', port: nextPort, path: incoming.url,
+          headers: {
+            host: incoming.headers.host,
+            origin: incoming.headers.origin,
+            connection: 'Upgrade',
+            upgrade: 'websocket',
+            'sec-websocket-key': incoming.headers['sec-websocket-key'],
+            'sec-websocket-version': incoming.headers['sec-websocket-version'],
+          },
+        });
+        upstream.once('upgrade', (reply, peer, upstreamHead) => {
+          const accept = reply.headers['sec-websocket-accept'];
+          if (reply.statusCode !== 101 || typeof accept !== 'string') {
+            peer.destroy();
+            socket.destroy();
+            return;
+          }
+          const close = () => { peer.destroy(); socket.destroy(); };
+          socket.once('close', close).once('error', close);
+          peer.once('close', close).once('error', close);
+          socket.write('HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Accept: ' + accept + '\r\n\r\n');
+          if (upstreamHead.length) socket.write(upstreamHead);
+          if (head.length) peer.write(head);
+          socket.pipe(peer).pipe(socket);
+        });
+        upstream.once('response', reply => { reply.resume(); socket.destroy(); });
+        upstream.once('error', () => socket.destroy());
+        upstream.end();
+      });
+
       foreignServer = createServer(tls, (req, res) => {
         logs.push(req.url ?? '', req.headers.referer ?? '');
         res.setHeader('Content-Type', 'text/html');
@@ -196,7 +237,7 @@ export function guestBrowserTests(database: () => PrismaClient) {
           if (new URL(route.request().url()).origin === origin) return route.continue();
           return route.abort();
         });
-        const bootstrap = { scriptOk: 0, scriptDenied: 0, scriptFailed: 0, clientErrors: 0, chunkErrors: 0, sessionRequests: 0 };
+        const bootstrap = { scriptOk: 0, scriptDenied: 0, scriptFailed: 0, clientErrors: 0, chunkErrors: 0, sessionRequests: 0, hmrFrames: 0 };
         tab.on('response', (reply: any) => {
           if (reply.request().resourceType() !== 'script') return;
           if (reply.ok()) bootstrap.scriptOk++;
@@ -207,6 +248,9 @@ export function guestBrowserTests(database: () => PrismaClient) {
         });
         tab.on('request', (request: any) => {
           if (request.url() === origin + '/api/auth/me') bootstrap.sessionRequests++;
+        });
+        tab.on('websocket', (socket: any) => {
+          if (new URL(socket.url()).pathname === '/_next/hmr') socket.on('framereceived', () => bootstrap.hmrFrames++);
         });
         tab.on('pageerror', (error: Error) => {
           bootstrap.clientErrors++;
@@ -228,6 +272,7 @@ export function guestBrowserTests(database: () => PrismaClient) {
           throw new AcceptanceCheck('ANONYMOUS_RESPONSE_MISSING ' + JSON.stringify({ ...bootstrap, ...boot }));
         }
         check(anonymous.status() === 401, 'ANONYMOUS_HTTP_' + anonymous.status());
+        check(bootstrap.hmrFrames > 0, 'NEXT_REACT_FLIGHT_WEBSOCKET_MISSING');
 
         stage = 'staff email input';
         await tab.getByLabel('Email', { exact: true }).fill(user.email);
@@ -252,9 +297,9 @@ export function guestBrowserTests(database: () => PrismaClient) {
         check(cookie?.httpOnly && cookie.sameSite === 'Lax' && cookie.path === '/', 'STAFF_COOKIE_NOT_STORED');
 
         stage = 'staff navigation to workspace';
-        const document = await home;
-        check(document, 'WORKSPACE_RESPONSE_MISSING');
-        check(document.status() === 200, 'WORKSPACE_HTTP_' + document.status());
+        const workspacePage = await home;
+        check(workspacePage, 'WORKSPACE_RESPONSE_MISSING');
+        check(workspacePage.status() === 200, 'WORKSPACE_HTTP_' + workspacePage.status());
         stage = 'staff workspace auth/me';
         const authenticated = await session;
         check(authenticated, 'SESSION_RESPONSE_MISSING');
