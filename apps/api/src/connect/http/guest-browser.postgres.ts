@@ -196,6 +196,22 @@ export function guestBrowserTests(database: () => PrismaClient) {
           if (new URL(route.request().url()).origin === origin) return route.continue();
           return route.abort();
         });
+        const bootstrap = { scriptOk: 0, scriptDenied: 0, scriptFailed: 0, clientErrors: 0, chunkErrors: 0, sessionRequests: 0 };
+        tab.on('response', (reply: any) => {
+          if (reply.request().resourceType() !== 'script') return;
+          if (reply.ok()) bootstrap.scriptOk++;
+          else bootstrap.scriptDenied++;
+        });
+        tab.on('requestfailed', (request: any) => {
+          if (request.resourceType() === 'script') bootstrap.scriptFailed++;
+        });
+        tab.on('request', (request: any) => {
+          if (request.url() === origin + '/api/auth/me') bootstrap.sessionRequests++;
+        });
+        tab.on('pageerror', (error: Error) => {
+          bootstrap.clientErrors++;
+          if (/chunk|dynamically imported module/i.test(error.message)) bootstrap.chunkErrors++;
+        });
         const response = (path: string, method: string) => (res: any) =>
           res.url() === origin + path && res.request().method() === method;
         const onboardingAuth = tab.waitForResponse(response('/api/auth/me', 'GET')).catch(() => null);
@@ -203,7 +219,14 @@ export function guestBrowserTests(database: () => PrismaClient) {
         check(onboarding?.status() === 200, 'ONBOARDING_HTTP_' + onboarding?.status());
         stage = 'staff onboarding anonymous auth/me';
         const anonymous = await onboardingAuth;
-        check(anonymous, 'ANONYMOUS_RESPONSE_MISSING');
+        if (!anonymous) {
+          const boot = await tab.evaluate(() => ({
+            scripts: [...document.scripts].filter(script => script.src).length,
+            loading: document.body.textContent?.includes('Loading authenticated setup') ?? false,
+            expectedPage: document.querySelector('h1')?.textContent === 'Open your hotel workspace',
+          }));
+          throw new AcceptanceCheck('ANONYMOUS_RESPONSE_MISSING ' + JSON.stringify({ ...bootstrap, ...boot }));
+        }
         check(anonymous.status() === 401, 'ANONYMOUS_HTTP_' + anonymous.status());
 
         stage = 'staff email input';
