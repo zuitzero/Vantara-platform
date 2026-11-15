@@ -3,7 +3,7 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import { PrismaClient } from '@prisma/client';
 import { fork, spawnSync, ChildProcess } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes, scryptSync } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { request } from 'node:http';
 import { createServer } from 'node:https';
@@ -54,11 +54,12 @@ export function guestBrowserTests(database: () => PrismaClient) {
       app.use((req: any, res: any, proceed: () => void) => {
         // Keep URL/Referer evidence in memory. Never capture request bodies or cookies.
         logs.push(req.originalUrl, req.headers.referer ?? '');
-        if (req.path !== '/connect') return proceed();
-        if (req.originalUrl !== '/connect') return res.status(400).end();
+        const web = ['/', '/onboarding', '/connect'].includes(req.path) || req.path.startsWith('/_next/static/');
+        if (!web) return proceed();
+        if (req.path === '/connect' && req.originalUrl !== '/connect') return res.status(400).end();
         if (!nextPort) return res.status(503).end();
         const upstream = request({
-          hostname: '127.0.0.1', port: nextPort, path: '/connect', method: req.method,
+          hostname: '127.0.0.1', port: nextPort, path: req.originalUrl, method: req.method,
           headers: { host: req.headers.host },
         }, reply => {
           res.writeHead(reply.statusCode!, reply.headers);
@@ -94,7 +95,7 @@ export function guestBrowserTests(database: () => PrismaClient) {
           PATH: process.env.PATH, GITHUB_ACTIONS: 'true', NODE_ENV: 'development', NEXT_TELEMETRY_DISABLED: '1',
           WEB_ORIGIN: origin, VANTARA_ENV: 'local', CONNECT_GUEST_HTTP: 'synthetic-https-only',
           CONNECT_GUEST_POLICY_ACK: 'candidate-v1-synthetic-only',
-          CONNECT_GUEST_SHELL: 'synthetic-https-only', API_INTERNAL_URL: origin,
+          CONNECT_GUEST_SHELL: 'synthetic-https-only', API_INTERNAL_URL: origin, NEXT_PUBLIC_REALTIME_URL: origin,
         },
         stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
       });
@@ -164,6 +165,61 @@ export function guestBrowserTests(database: () => PrismaClient) {
       check(tab.url() === origin + '/connect', 'FRAGMENT_RETAINED');
       await tab.getByRole('button', { name: 'Open my stay' }).click();
     }
+
+    acceptance('signs in a hotel staff user on mobile, syncs persisted unread and revokes their session', async () => {
+      stage = 'staff fixture';
+      const password = opaque();
+      const salt = randomBytes(16).toString('hex');
+      const fingerprint = createHash('sha256').update(scryptSync(password, salt, 64)).digest('hex');
+      const user = await database().user.create({ data: {
+        name: 'Synthetic concierge', email: 'concierge@example.invalid', passwordHash: `scrypt:${salt}:${fingerprint}`,
+        memberships: { create: { tenantId: 'cs02-a', role: 'HOTEL_STAFF' } },
+      } });
+      secrets.push(password);
+      try {
+        stage = 'staff mobile sign-in';
+        const { tab, context } = await page(true);
+        await context.route('**/*', (route: any) => {
+          if (new URL(route.request().url()).origin === origin) return route.continue();
+          return route.abort();
+        });
+        await tab.goto(origin + '/onboarding');
+        await tab.getByLabel('Email', { exact: true }).fill(user.email);
+        await tab.getByLabel('Password', { exact: true }).fill(password);
+        await tab.locator('form').getByRole('button', { name: 'Sign in', exact: true }).click();
+        await tab.getByRole('heading', { name: /Synthetic/ }).waitFor({ timeout: 15000 });
+        const cookie = (await context.cookies(origin)).find((row: any) => row.name === 'vantara_session');
+        check(cookie?.httpOnly && cookie.sameSite === 'Lax', 'STAFF_COOKIE_MISSING');
+        secrets.push(cookie.value);
+        const nav = tab.getByRole('navigation', { name: 'Hotel modules' });
+        check(!(await nav.getByText('Billing').count()), 'STAFF_BILLING_VISIBLE');
+        check(await tab.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'STAFF_MOBILE_OVERFLOW');
+
+        stage = 'persisted unread and request navigation';
+        const item = await database().guestRequest.create({ data: {
+          tenantId: 'cs02-a', propertyId: 'cs02-a-property', guestId: 'cs02-a-guest',
+          title: 'Synthetic queue item', message: 'Example front desk handoff', category: 'FRONT_DESK',
+        } });
+        await database().notification.create({ data: {
+          tenantId: 'cs02-a', audience: 'HOTEL', severity: 'INFO', channel: 'IN_APP', type: 'guest_request.created',
+          title: 'Synthetic handoff', message: 'Open the queue', metadata: { requestId: item.id },
+        } });
+        await tab.getByRole('button', { name: 'Notifications' }).click();
+        await tab.getByRole('button', { name: /Synthetic handoff/ }).click();
+        await tab.getByRole('heading', { name: 'Synthetic queue item' }).waitFor();
+        await tab.getByRole('button', { name: 'Notifications' }).click();
+        await tab.getByText('No unread notifications.').waitFor();
+
+        stage = 'staff logout and back';
+        await tab.getByRole('button', { name: 'Sign out', exact: true }).click();
+        await tab.getByRole('heading', { name: 'Open your hotel workspace' }).waitFor();
+        await tab.goto(origin + '/');
+        await tab.getByText('Sign in to Vantara', { exact: true }).waitFor();
+        check((await database().session.count({ where: { userId: user.id } })) === 0, 'STAFF_SESSION_NOT_REVOKED');
+      } finally {
+        await database().user.delete({ where: { id: user.id } });
+      }
+    });
 
     acceptance('cleans the fragment before fetch and enforces CSP, cookie, navigation and retry behavior on mobile', async () => {
       stage = 'mobile landing';

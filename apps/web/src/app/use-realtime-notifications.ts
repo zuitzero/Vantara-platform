@@ -16,9 +16,12 @@ export type RealtimeNotification = {
 };
 
 export function useRealtimeNotifications(
+  enabled: boolean,
   onNotification: (notification: RealtimeNotification) => void,
+  onReconnect: () => void,
 ) {
   useEffect(() => {
+    if (!enabled) return;
     const socket = io(realtimeUrl(process.env.NEXT_PUBLIC_REALTIME_URL, process.env.NODE_ENV === 'production', window.location.origin), {
       path: '/socket.io',
       withCredentials: true,
@@ -30,10 +33,11 @@ export function useRealtimeNotifications(
     });
 
     socket.on('notification', onNotification);
+    socket.on('connect', onReconnect);
 
     return () => {
       socket.off('notification', onNotification);
       socket.disconnect();
     };
-  }, [onNotification]);
+  }, [enabled, onNotification, onReconnect]);
 }
