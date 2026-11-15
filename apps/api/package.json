@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "NODE_ENV=development nest start --watch",
     "build": "nest build",
+    "start:showroom": "node dist/main.js --showroom",
     "start": "node dist/main.js",
     "test": "jest --runInBand",
     "demo:check": "node scripts/pilot01-check.cjs",

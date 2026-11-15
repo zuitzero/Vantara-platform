@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "start:showroom": "node scripts/showroom-server.cjs",
     "start": "next start",
     "lint": "next lint",
     "test": "node --experimental-strip-types --test tests/*.test.mjs"

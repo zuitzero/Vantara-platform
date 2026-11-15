@@ -1,8 +1,10 @@
+import { admits, configuration } from '../../../../infra/staging/showroom-policy.cjs';
 import { allowedOrigin } from '../security/cloud-security';
 import { RbacService } from '../rbac/rbac.service';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { OnGatewayConnection, WebSocketGateway, WebSocketServer } from '@nestjs/websockets';
-import { Server, Socket } from 'socket.io';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { Namespace, Server, Socket } from 'socket.io';
 import { AuthService } from '../auth/auth.service';
 import { SESSION_COOKIE } from '../auth/auth.constants';
 import { NotificationEvent } from './notifications.types';
@@ -11,10 +13,23 @@ import { NotificationEvent } from './notifications.types';
   namespace: '/realtime',
   cors: { origin: (origin, callback) => callback(null, allowedOrigin(origin)), credentials: true },
   // CORS alone does not protect WebSocket upgrades.
-  allowRequest: (request, callback) => callback(null, allowedOrigin(request.headers.origin)),
+  allowRequest: (request, callback) => {
+    const showroom = configuration(process.env);
+    callback(null, allowedOrigin(request.headers.origin) && (!showroom || admits(showroom, request, 'socket')));
+  },
 })
 @Injectable()
 export class NotificationsGateway implements OnGatewayConnection {
+  afterInit(namespace: Namespace) {
+    const showroom = configuration(process.env);
+    if (showroom) {
+      namespace.server.engine.use((request: IncomingMessage, _response: ServerResponse, next: (error?: Error) => void) => {
+        if (admits(showroom, request, 'socket')) return next();
+        next(new Error('Showroom transport denied.'));
+      });
+    }
+  }
+
   @WebSocketServer()
   server!: Server;
 
