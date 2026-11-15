@@ -196,11 +196,9 @@ integration('Showroom real Nginx, Next, Nest and disposable PostgreSQL', () => {
     validate.stderr!.on('data', data => diagnostic.push(data));
     const [syntaxExit] = await once(validate, 'close');
     if (syntaxExit !== 0) {
-      const summary = Buffer.concat(diagnostic).toString();
-      const line = summary.match(/nginx\.conf:(\d+)/)?.[1] ?? 'unknown';
-      const known = ['unknown directive', 'duplicate', 'invalid number of arguments', 'invalid parameter',
-        'pcre2_compile', 'pcre_compile', 'cannot be inside', 'host not found', 'shared memory zone'];
-      throw new Error('SHOWROOM_NGINX_CONFIG ' + line + ' ' + (known.find(value => summary.includes(value)) ?? 'other'));
+      let summary = Buffer.concat(diagnostic).toString().replaceAll(dir, '<fixture-dir>').trim();
+      for (const secret of secrets) summary = summary.replaceAll(secret, '<redacted>');
+      throw new Error('SHOWROOM_NGINX_CONFIG ' + (summary || 'no diagnostic'));
     }
     nginx = runNginx();
     let observed: number | undefined;

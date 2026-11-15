@@ -52,3 +52,26 @@ test('gateway renderer emits the raw request allowlist and requires the private 
   assert.ok(nginx.includes('include showroom-ingress.inc;'));
   assert.ok(!nginx.includes(key) && !nginx.includes(MARKER));
 });
+
+test('real Nginx validates the generated Showroom config with inert loopback upstreams', {
+  skip: process.env.STAGING_NGINX_TEST !== '1',
+}, () => {
+  const { mkdtempSync, writeFileSync, rmSync } = require('node:fs');
+  const { tmpdir } = require('node:os');
+  const { join } = require('node:path');
+  const { spawnSync } = require('node:child_process');
+  const dir = mkdtempSync(join(tmpdir(), 'showroom-nginx-config-'));
+  try {
+    const config = renderShowroom(example)
+      .replaceAll('listen 8080', 'listen 127.0.0.1:38080')
+      .replaceAll(example.webUpstream, 'http://127.0.0.1:3000')
+      .replaceAll(example.apiUpstream, 'http://127.0.0.1:3001');
+    writeFileSync(join(dir, 'nginx.conf'), config);
+    writeFileSync(join(dir, 'showroom-ingress.inc'), 'proxy_set_header X-Vantara-Showroom-Ingress syntax-test;\n');
+    const result = spawnSync(process.env.NGINX_BIN || 'nginx',
+      ['-p', dir + '/', '-c', 'nginx.conf', '-t'], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr?.replaceAll(dir, '<fixture-dir>'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
