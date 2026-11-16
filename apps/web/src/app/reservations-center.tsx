@@ -65,6 +65,9 @@ export function ReservationsCenter({ base, canManage, initialGuestId, onGuestCon
         const body = await response.json().catch(() => null);
         throw new Error(typeof body?.message === 'string' ? body.message : `Reservation update failed (${response.status}).`);
       }
+      if (status === 'CHECKED_OUT' || status === 'CANCELED' || status === 'NO_SHOW') {
+        setConnectLink(current => current?.reservationId === reservation.id ? null : current);
+      }
       // Reload authoritative data, including room and guest relationships, after the server transaction.
       await load();
     } catch (error) {

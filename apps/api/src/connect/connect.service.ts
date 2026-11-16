@@ -88,9 +88,11 @@ export class ConnectService {
     if (!REQUESTABLE.includes(reservation.status) || reservation.checkOut.getTime() <= Date.now()) {
       throw new ForbiddenException('This stay can no longer create requests.');
     }
-    return this.requests.createForReservationGuest(access.tenantId, reservation.id, {
+    const request = await this.requests.createForReservationGuest(access.tenantId, reservation.id, {
       ...input,
       priority: input.priority ?? GuestRequestPriority.NORMAL,
     });
+    const { id, tenantId, reservationId, title, message, category, priority, status, createdAt, completedAt } = request;
+    return { id, tenantId, reservationId, title, message, category, priority, status, createdAt, completedAt };
   }
 }

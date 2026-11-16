@@ -1,7 +1,7 @@
 import { auditMutation } from '../rbac/audit.service';
 import { AuditAction } from '@prisma/client';
 import { RoomReadinessService } from '../room-readiness/room-readiness.service';
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   Prisma,
   GuestRequestCategory,
@@ -178,34 +178,36 @@ export class RequestsService {
   }
 
   async updateForTenant(tenantId: string, requestId: string, input: UpdateGuestRequestDto) {
-    const current = await this.prisma.guestRequest.findFirst({ where: { id: requestId, tenantId } });
-    if (!current) throw new NotFoundException('Guest request not found.');
-
-    const status = input.status ?? current.status;
-    const completedAt = status === GuestRequestStatus.COMPLETED ? new Date() : current.completedAt;
-
-    const request = await this.prisma.guestRequest.update({
-      where: { id: current.id },
-      data: {
-        status,
-        priority: input.priority,
-        resolutionNote: input.resolutionNote?.trim(),
-        completedAt,
-      },
-      include: { guest: true, property: true, room: { include: { roomType: true } } },
-    });
-
-    if (status !== current.status) {
-      const event = guestRequestStatusNotification({
-        tenantId,
-        guestId: request.guestId,
-        requestId: request.id,
-        status,
+    return this.notifications.transaction(async tx => {
+      const current = await tx.guestRequest.findFirst({ where: { id: requestId, tenantId } });
+      if (!current) throw new NotFoundException('Guest request not found.');
+      const status = input.status ?? current.status;
+      const changed = status !== current.status;
+      if (changed && (current.status === GuestRequestStatus.COMPLETED || current.status === GuestRequestStatus.CANCELLED)) {
+        throw new BadRequestException('A closed request cannot be reopened.');
+      }
+      const request = await tx.guestRequest.update({
+        where: { id: current.id, tenantId, status: current.status },
+        data: {
+          status: input.status,
+          priority: input.priority,
+          resolutionNote: input.resolutionNote?.trim(),
+          completedAt: changed && status === GuestRequestStatus.COMPLETED ? new Date() : undefined,
+        },
+        include: { guest: true, property: true, room: { include: { roomType: true } } },
+      }).catch(error => {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+          throw new ConflictException('Request changed. Refresh and retry.');
+        }
+        throw error;
       });
-      if (event) await this.notifications.publish(event);
-    }
 
-    return request;
+      if (changed) {
+        const event = guestRequestStatusNotification({ tenantId, guestId: request.guestId, requestId: request.id, status });
+        if (event) await this.notifications.queue(tx, event);
+      }
+      return request;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   }
 
   private toOperationsPriority(priority?: GuestRequestPriority): OperationsPriority {
