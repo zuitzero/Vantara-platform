@@ -1,6 +1,6 @@
 // Serialized into the first inline script by the /connect Route Handler.
 // Keep this function self-contained. Values from the API only reach text nodes.
-export function startGuestShell() {
+export function startGuestShell(showroomOrigin?: string) {
   function takeFragment() {
     const hash = location.hash;
     history.replaceState(null, '', '/connect');
@@ -9,8 +9,9 @@ export function startGuestShell() {
 
   // This is synchronous and precedes DOM setup, fetch and every resource reference.
   const hadFragment = Boolean(location.hash);
-  const trusted = location.protocol === 'https:' &&
-    ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname) && !location.search;
+  const trusted = location.protocol === 'https:' && !location.search && (showroomOrigin
+    ? location.origin === showroomOrigin
+    : ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname));
   let code: string | undefined;
   let cleaned = false;
   try {
@@ -32,7 +33,7 @@ export function startGuestShell() {
     const historyList = document.getElementById('history')!;
     const lifetime = new AbortController();
     let csrf: string | undefined;
-    let pending: { key: string; payload: { title: string; message: string; category: string } } | undefined;
+    let pending: { key: string; payload: { title: string; message: string; category: string } | { preset: 'TOWELS' } } | undefined;
     let busy = false;
 
     function resetRequest(resetFields: boolean) {
@@ -64,7 +65,7 @@ export function startGuestShell() {
 
     if (!trusted || !cleaned) {
       code = undefined;
-      status.textContent = 'Open this link over local HTTPS.';
+      status.textContent = 'Open this link over trusted HTTPS.';
       return;
     }
 
@@ -175,7 +176,7 @@ export function startGuestShell() {
           const data = new FormData(form);
           const bytes = crypto.getRandomValues(new Uint8Array(32));
           const key = btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
-          pending = { key, payload: {
+          pending = { key, payload: showroomOrigin ? { preset: 'TOWELS' } : {
             title: String(data.get('title')).trim(),
             message: String(data.get('message')).trim(),
             category: String(data.get('category')),
@@ -197,7 +198,7 @@ export function startGuestShell() {
         }
         if (response.status === 400 || response.status === 409 || response.status === 413) {
           resetRequest(false);
-          status.textContent = 'Review your request and try again.';
+          status.textContent = showroomOrigin && response.status === 409 ? 'The request limit for this stay was reached.' : 'Review your request and try again.';
           return;
         }
         if (!response.ok) throw new Error('Request unavailable.');

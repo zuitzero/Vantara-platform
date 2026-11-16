@@ -1,4 +1,4 @@
-import { GuestHttpController, GuestBootstrapController } from './http/guest-http.controller';
+import { GuestHttpController, GuestBootstrapController, ShowroomAdmissionController } from './http/guest-http.controller';
 import { GuestHttpService } from './http/guest-http.service';
 import { GuestTransportGuard } from './http/guest-http.security';
 import { Module } from '@nestjs/common';
@@ -11,7 +11,7 @@ import { ConnectService } from './connect.service';
 
 @Module({
   imports: [PrismaModule, AuthModule, RequestsModule],
-  controllers: [ConnectController, ConnectAdminController, GuestHttpController, GuestBootstrapController],
+  controllers: [ConnectController, ConnectAdminController, GuestHttpController, GuestBootstrapController, ShowroomAdmissionController],
   providers: [ConnectService, GuestHttpService, GuestTransportGuard],
 })
 export class ConnectModule {}

@@ -16,7 +16,7 @@ import { GUEST_PROTOCOL } from '../connect/protocol/guest-access.contracts';
 import { PostgresGuestAccessRepository } from '../connect/persistence/guest-access.repository';
 import { configuration, MARKER } from '../../../../infra/staging/showroom-policy.cjs';
 import { securityMiddleware } from './cloud-security';
-import { configureShowroomApi, verifyShowroomDatabase } from './showroom-security';
+import { configureShowroomApi, verifyShowroomDatabase, verifyShowroomOperator } from './showroom-security';
 
 const { renderShowroom } = require('../../../../infra/staging/showroom-gateway.cjs');
 const example = require('../../../../infra/staging/staging.example.json');
@@ -77,6 +77,7 @@ integration('Showroom real Nginx, Next, Nest and disposable PostgreSQL', () => {
   let dir: string;
   let requestA: string, requestB: string;
   let guestCookie: string;
+  let operatorPair: string, proofStay: string, foreignStay: string;
   const previous = { ...process.env };
   const logs: string[] = [];
   const secrets = [key, pathCanary, payloadCanary];
@@ -109,14 +110,26 @@ integration('Showroom real Nginx, Next, Nest and disposable PostgreSQL', () => {
         tenantId: tenant.id, propertyId: property.id, guestId: guest.id, title: 'SYNTHETIC ' + side,
         message: 'SYNTHETIC only', category: 'OTHER',
       } });
-      if (side === 'b') { requestB = item.id; continue; }
-      requestA = item.id;
+      if (side === 'a') {
+        requestA = item.id;
+        const operator = await db.user.create({ data: {
+          email: 'operator@example.invalid', name: 'SYNTHETIC OPERATOR',
+          passwordHash: 'scrypt:' + salt + ':' + createHash('sha256').update(scryptSync(password, salt, 64)).digest('hex'),
+          memberships: { create: { tenantId: tenant.id, role: 'HOTEL_STAFF' } },
+        } });
+        operatorPair = tenant.id + ':' + operator.id;
+      } else requestB = item.id;
       const type = await db.roomType.create({ data: { propertyId: property.id, name: 'SYNTHETIC', code: 'DEMO' } });
       const stay = await db.reservation.create({ data: {
         tenantId: tenant.id, guestId: guest.id, propertyId: property.id, roomTypeId: type.id,
-        confirmationCode: 'SYNTHETIC-A', status: 'CONFIRMED', checkIn: new Date(Date.now() - 1000),
+        confirmationCode: 'SYNTHETIC-' + side, status: 'CONFIRMED', checkIn: new Date(Date.now() - 1000),
         checkOut: new Date(Date.now() + 86400000),
       } });
+      if (side === 'b') { foreignStay = stay.id; continue; }
+      proofStay = (await db.reservation.create({ data: {
+        tenantId: tenant.id, guestId: guest.id, propertyId: property.id, roomTypeId: type.id,
+        confirmationCode: 'SYNTHETIC-PROOF-A', status: 'CONFIRMED', checkIn: stay.checkIn, checkOut: stay.checkOut,
+      } })).id;
       await db.guestConnectAccess.create({ data: {
         tenantId: tenant.id, reservationId: stay.id, tokenHash: digest(pathCanary), expiresAt: stay.checkOut,
       } });
@@ -132,10 +145,13 @@ integration('Showroom real Nginx, Next, Nest and disposable PostgreSQL', () => {
     Object.assign(process.env, {
       NODE_ENV: 'production', VANTARA_ENV: 'staging', WEB_ORIGIN: origin,
       SHOWROOM_MODE: 'cloud-05a', SHOWROOM_DATA_MARKER: MARKER, SHOWROOM_INGRESS_KEY: key,
+      SHOWROOM_GUEST_MODE: 'disposable-proof', SHOWROOM_REPLICAS: '1', SHOWROOM_GUEST_OPERATOR: operatorPair,
     });
     const module = await Test.createTestingModule({ imports: [AppModule] }).overrideProvider(PrismaService).useValue(db).compile();
     api = module.createNestApplication<NestExpressApplication>({ logger: false, rawBody: true });
-    configureShowroomApi(api, configuration(process.env)!);
+    const config = configuration(process.env)!;
+    verifyShowroomOperator(config);
+    configureShowroomApi(api, config);
     configureGuestHttp(api);
     api.use(securityMiddleware);
     api.setGlobalPrefix('api');
@@ -149,6 +165,7 @@ integration('Showroom real Nginx, Next, Nest and disposable PostgreSQL', () => {
       env: {
         PATH: process.env.PATH, NODE_ENV: 'production', VANTARA_ENV: 'staging', WEB_ORIGIN: origin,
         SHOWROOM_MODE: 'cloud-05a', SHOWROOM_DATA_MARKER: MARKER, SHOWROOM_INGRESS_KEY: key,
+        SHOWROOM_GUEST_MODE: 'disposable-proof', SHOWROOM_REPLICAS: '1',
         API_INTERNAL_URL: example.apiUpstream, PORT: '0', NEXT_TELEMETRY_DISABLED: '1',
       },
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
@@ -162,7 +179,7 @@ integration('Showroom real Nginx, Next, Nest and disposable PostgreSQL', () => {
 
     dir = await mkdtemp(join(tmpdir(), 'showroom-ci-'));
     gatewayPort = await waitPort();
-    const nginxConfig = renderShowroom(example).replaceAll('listen 8080', 'listen 127.0.0.1:' + gatewayPort)
+    const nginxConfig = renderShowroom(example, { guestProof: true }).replaceAll('listen 8080', 'listen 127.0.0.1:' + gatewayPort)
       .replaceAll(example.webUpstream, 'http://127.0.0.1:' + webPort)
       .replaceAll(example.apiUpstream, 'http://127.0.0.1:' + apiPort);
     await writeFile(join(dir, 'nginx.conf'), nginxConfig);
@@ -238,7 +255,10 @@ integration('Showroom real Nginx, Next, Nest and disposable PostgreSQL', () => {
   it('requires gateway proof on both origins and permits only intended routes', async () => {
     check((await call(gatewayPort, '/')).status === 200, 'SHOWROOM_WEB_DENIED');
     check((await call(gatewayPort, '/onboarding')).status === 200, 'SHOWROOM_SIGNIN_PAGE_DENIED');
-    check((await call(gatewayPort, '/connect')).status === 404, 'SHOWROOM_GUEST_SHELL_OPEN');
+    const shell = await call(gatewayPort, '/connect');
+    check(shell.status === 200 && shell.headers['content-security-policy'] &&
+      shell.body.includes('two fresh towels') && !shell.body.includes('name="message"'), 'SHOWROOM_GUEST_SHELL_POLICY');
+    check((await call(webPort, '/connect', 'GET', forwarded)).status === 404, 'DIRECT_GUEST_SHELL_OPEN');
     check((await call(gatewayPort, '/api/health', 'GET', { 'X-Vantara-Showroom-Ingress': payloadCanary })).status === 200, 'GATEWAY_DID_NOT_REPLACE_PROOF');
     check((await call(gatewayPort, '/api/health', 'GET', { Host: 'alternate.example.invalid', ...proof })).status === 404, 'ALTERNATE_HOST_ACCEPTED');
     check((await call(apiPort, '/api/health', 'GET', forwarded)).status === 404, 'DIRECT_API_ACCEPTED');
@@ -294,6 +314,62 @@ integration('Showroom real Nginx, Next, Nest and disposable PostgreSQL', () => {
     check((await call(gatewayPort, '/api/requests', 'GET', { Cookie: guestCookie })).status === 401, 'GUEST_COOKIE_ACCEPTED_AS_STAFF');
     check((await call(gatewayPort, '/api/auth/logout', 'POST', { Cookie: staffA, Origin: 'https://foreign.example.invalid' })).status === 403, 'ORIGIN_GUARD_BYPASSED');
     check((await call(gatewayPort, '/api/guest-connect/stay', 'GET', { Cookie: staffA })).status === 404, 'GUEST_MODE_ACTIVATED');
+  });
+
+  it('runs a fixed-path invitation, preset request, reissue and revocation through the real gateway', async () => {
+    const common = { Origin: origin, 'Content-Type': 'application/json', 'X-Vantara-Guest': '1' };
+    const post = async (path: string, body: unknown, headers: Record<string, string> = {}) => {
+      await new Promise(done => setTimeout(done, 110)); // Keep routine requests within the actual ingress budget.
+      return call(gatewayPort, '/api/' + path, 'POST', { ...common, ...headers }, JSON.stringify(body));
+    };
+    const login = async (who: string) => {
+      const reply = await post('auth/login', { email: who + '@example.invalid', password });
+      const cookie = reply.headers['set-cookie']?.[0]?.split(';')[0];
+      check(reply.status === 201 && cookie, 'ADMISSION_LOGIN');
+      secrets.push(cookie.split('=')[1]);
+      return { Cookie: cookie };
+    };
+    const operator = await login('operator'), admin = await login('a');
+    const issue = 'showroom-admission/issue', revoke = 'showroom-admission/revoke';
+    const data = { reservationId: proofStay };
+    const read = 'guest-connect/stay', exchange = 'guest-connect/session';
+    const captureInvite = (response: { status: number; body: string }) => {
+      check(response.status === 200, 'INVITE_ISSUE_' + response.status);
+      const code = JSON.parse(response.body).code;
+      check(/^[A-Za-z0-9_-]{43}$/.test(code), 'INVITE_CODE_SHAPE');
+      secrets.push(code);
+      return { code };
+    };
+    check((await post(issue, data, admin)).status === 403, 'GENERAL_ADMIN_GOT_INVITE_GRANT');
+    check((await post(issue, { reservationId: foreignStay }, operator)).status === 401, 'FOREIGN_RESERVATION_INVITE');
+    check((await post(issue, { ...data, tenantId: 'foreign' }, operator)).status === 400, 'BODY_TENANT_ACCEPTED');
+    check((await post(issue, data, { ...operator, Origin: 'https://foreign.example.invalid' })).status === 403, 'OPERATOR_ORIGIN_BYPASS');
+    check((await post(read, {}, { Cookie: guestCookie })).status === 401, 'LEGACY_GUEST_COOKIE_ACCEPTED');
+    check((await call(apiPort, '/api/' + issue, 'POST', { ...common, ...operator }, JSON.stringify(data))).status === 404, 'DIRECT_ADMISSION_OPEN');
+    const code = captureInvite(await post(issue, data, operator));
+    const session = await post(exchange, code);
+    const cookie = session.headers['set-cookie']?.[0];
+    check(session.status === 200 && cookie && cookie.startsWith('__Host-vantara_guest=') &&
+      /; Secure; HttpOnly; SameSite=Lax;/.test(cookie) && !/Domain=/i.test(cookie), 'GUEST_PROOF_COOKIE');
+    const guest = { Cookie: cookie.split(';')[0] };
+    const csrf = JSON.parse(session.body).csrfToken;
+    secrets.push(guest.Cookie.split('=')[1], csrf);
+    check((await post(exchange, code)).status === 401, 'SHOWROOM_EXCHANGE_REPLAY');
+    check((await post(read, {}, { Cookie: guest.Cookie + '; ' + guest.Cookie })).status === 403, 'DUPLICATE_GUEST_COOKIE');
+    check((await post(read, {}, guest)).body.includes('SYNTHETIC-PROOF-A'), 'WRONG_STAY_SCOPE');
+    const submit = 'guest-connect/requests';
+    const idempotencyKey = randomBytes(32).toString('base64url');
+    const csrfHeaders = { ...guest, 'X-Vantara-CSRF': csrf, 'Idempotency-Key': idempotencyKey };
+    secrets.push(idempotencyKey);
+    check((await post(submit, { preset: 'TOWELS' }, guest)).status === 403, 'SHOWROOM_CSRF_BYPASS');
+    check((await post(submit, { preset: 'TOWELS', message: payloadCanary }, csrfHeaders)).status === 401, 'SHOWROOM_FREE_TEXT_ACCEPTED');
+    const first = await post(submit, { preset: 'TOWELS' }, csrfHeaders);
+    const replay = await post(submit, { preset: 'TOWELS' }, csrfHeaders);
+    check(first.status === 200 && replay.status === 200 && JSON.parse(first.body).id === JSON.parse(replay.body).id, 'SHOWROOM_IDEMPOTENCY');
+    const newer = captureInvite(await post(issue, data, operator));
+    check((await post(read, {}, guest)).status === 401, 'REISSUE_LEFT_SESSION_ACTIVE');
+    check((await post(revoke, data, operator)).status === 200, 'SHOWROOM_REVOKE');
+    check((await post(exchange, newer)).status === 401, 'REVOKED_INVITE_EXCHANGED');
   });
 
   it('guards a real Engine.IO Upgrade at both gateway and origin', async () => {

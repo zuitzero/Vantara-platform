@@ -24,14 +24,25 @@ const routes = [
   ['GET', '/api/notifications/unread', 'api'],
   ['GET', '/socket\\.io/\\?EIO=4&transport=websocket', 'socket'],
 ];
-const compiled = routes.map(([method, pattern, service]) => [method, new RegExp('^' + pattern + '$'), service]);
+const proofRoutes = [
+  ['POST', '/api/guest-connect/(?:session|stay|requests|logout)', 'api'],
+  ['POST', '/api/showroom-admission/(?:issue|revoke)', 'api'],
+  ['PATCH', '/api/notifications/' + ID + '/read', 'api'],
+];
+const activeRoutes = guestProof => guestProof ? [...routes, ...proofRoutes] : routes;
+const compile = rows => rows.map(([method, pattern, service]) => [method, new RegExp('^' + pattern + '$'), service]);
+
+const compiled = compile(routes);
+const compiledProof = compile(activeRoutes(true));
 
 function configuration(env) {
-  const { SHOWROOM_MODE, SHOWROOM_DATA_MARKER, SHOWROOM_INGRESS_KEY, WEB_ORIGIN } = env;
-  if (SHOWROOM_MODE === undefined && SHOWROOM_DATA_MARKER === undefined && SHOWROOM_INGRESS_KEY === undefined) return null;
+  const { SHOWROOM_MODE, SHOWROOM_DATA_MARKER, SHOWROOM_INGRESS_KEY, SHOWROOM_GUEST_MODE, SHOWROOM_REPLICAS, WEB_ORIGIN } = env;
+  if (SHOWROOM_MODE === undefined && SHOWROOM_DATA_MARKER === undefined && SHOWROOM_INGRESS_KEY === undefined && SHOWROOM_GUEST_MODE === undefined && SHOWROOM_REPLICAS === undefined) return null;
   let origin;
   try { origin = new URL(WEB_ORIGIN); } catch {}
   if (SHOWROOM_MODE !== MODE || SHOWROOM_DATA_MARKER !== MARKER || !KEY.test(SHOWROOM_INGRESS_KEY ?? '') ||
+      (SHOWROOM_GUEST_MODE !== undefined && (SHOWROOM_GUEST_MODE !== 'disposable-proof' || SHOWROOM_REPLICAS !== '1')) ||
+      (SHOWROOM_GUEST_MODE === undefined && SHOWROOM_REPLICAS !== undefined) ||
       env.NODE_ENV !== 'production' || env.VANTARA_ENV !== 'staging' ||
       !origin || origin.origin !== WEB_ORIGIN || origin.protocol !== 'https:' ||
       !/^[a-z0-9-]+\.example\.invalid$/.test(origin.hostname) ||
@@ -39,16 +50,16 @@ function configuration(env) {
       Object.entries(env).some(([name, value]) => value && /^(PILOT01_|CONNECT_GUEST_|STRIPE_|OPENAI_|ANTHROPIC_)/.test(name))) {
     throw new Error('SHOWROOM_CONFIGURATION_REJECTED');
   }
-  return { host: origin.host, origin: origin.origin, key: SHOWROOM_INGRESS_KEY };
+  return { host: origin.host, origin: origin.origin, key: SHOWROOM_INGRESS_KEY, ...(SHOWROOM_GUEST_MODE ? { guestProof: true } : {}) };
 }
 
-function target(method, raw) {
+function target(method, raw, guestProof = false) {
   if (typeof raw !== 'string' || raw.length > 512 || /[%\\#\x00-\x20\x7f]/.test(raw)) return undefined;
-  return compiled.find(([verb, pattern]) => verb === method && pattern.test(raw))?.[2];
+  return (guestProof ? compiledProof : compiled).find(([verb, pattern]) => verb === method && pattern.test(raw))?.[2];
 }
 
 function admits(config, req, service, raw = req.url) {
-  if (req.headers.host !== config.host || target(req.method, raw) !== service) return false;
+  if (req.headers.host !== config.host || target(req.method, raw, config.guestProof) !== service) return false;
   const key = req.headers[HEADER];
   if (typeof key !== 'string' || !KEY.test(key) || !timingSafeEqual(Buffer.from(key), Buffer.from(config.key))) return false;
   return service !== 'socket' ||
@@ -62,4 +73,4 @@ function deny(response) {
   response.end('Not found.');
 }
 
-module.exports = { MODE, MARKER, HEADER, routes, configuration, target, admits, deny };
+module.exports = { MODE, MARKER, HEADER, routes, activeRoutes, configuration, target, admits, deny };
