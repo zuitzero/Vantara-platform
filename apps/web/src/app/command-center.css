@@ -12,3 +12,17 @@
 .notification-toast-actions button:last-child{background:transparent;color:#bbc9b9}
 .request-highlighted{outline:2px solid #b6ff00;outline-offset:3px}
 @media(max-width:640px){.notification-toast{right:16px;bottom:16px}}
+
+.notification-popover{max-width:min(350px,calc(100vw - 32px));max-height:min(430px,65vh);overflow:auto}
+.sidebar-footer .refresh-button{margin-top:10px}
+@media(max-width:820px){
+  .workspace{grid-template-columns:minmax(0,1fr)}
+  .sidebar-footer{display:flex;justify-content:flex-end}
+  .sidebar-footer .system-line,.sidebar-footer .user{display:none}
+  .sidebar-footer .refresh-button{min-height:44px}
+}
+@media(max-width:640px){
+  .nav[aria-label="Hotel modules"]{display:flex;max-width:100%;overflow-x:auto;gap:6px;padding-bottom:6px}
+  .nav[aria-label="Hotel modules"]>button,.nav[aria-label="Hotel modules"]>a{flex:none;min-height:44px}
+  .nav[aria-label="Hotel modules"]>.nav-label,.nav[aria-label="Hotel modules"] .nav-count{display:none}
+}

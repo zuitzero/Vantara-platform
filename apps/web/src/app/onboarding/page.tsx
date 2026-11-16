@@ -18,7 +18,7 @@ async function read(response: Response) {
 
 export default function HotelOnboarding() {
   const base = process.env.NEXT_PUBLIC_API_URL ?? '/api';
-  const [mode, setMode] = useState<'create' | 'login' | 'setup' | 'denied'>('create');
+  const [mode, setMode] = useState<'create' | 'login' | 'setup' | 'denied'>('login');
   const [loading, setLoading] = useState(true);
   const [mutating, setMutating] = useState(false);
   const busy = useRef(false);
@@ -39,6 +39,7 @@ export default function HotelOnboarding() {
       const response = await fetch(`${base}/auth/me`, { credentials: 'include', cache: 'no-store' });
       if (response.status === 401) { if (request === generation.current) { setStatus(null); setMode(current => current === 'setup' ? 'login' : current); } return; }
       const workspace = await read(response);
+      if (workspace.membership?.role === 'HOTEL_STAFF') { if (request === generation.current) window.location.replace('/'); return; }
       if (workspace.membership?.role !== 'HOTEL_ADMIN') { if (request === generation.current) setMode('denied'); return; }
       const [setup, roomTypes, inventory] = await Promise.all([
         fetch(`${base}/onboarding/status`, { credentials: 'include', cache: 'no-store' }).then(read),
@@ -64,7 +65,9 @@ export default function HotelOnboarding() {
     busy.current = true; setMutating(true); setError(null); setNotice(null);
     try {
       await fetch(`${base}${path}`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }).then(read);
-      setNotice(done); form.reset();
+      form.reset();
+      if (path === '/auth/login') { window.location.replace('/'); return; }
+      setNotice(done);
       if (path === '/onboarding/workspace') { setMode('login'); }
       else await load();
     } catch (err) { setError(err instanceof Error ? err.message : 'Unable to save setup.'); }
