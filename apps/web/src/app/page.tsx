@@ -250,7 +250,7 @@ export default function Home() {
     return <main className="workspace-gate"><div className="gate-panel gate-error"><strong>Hotel workspace required</strong><span>This Command Center is restricted to HOTEL_ADMIN and HOTEL_STAFF memberships.</span></div></main>;
   }
 
-  let content = <Overview base={base} />;
+  let content = <Overview base={base} onOpenRooms={() => setActive('Rooms')} />;
   if (active === 'Guests') content = <GuestsCenter base={base} canManage={isHotelAdmin} onReserve={guestId => { setReservationGuestId(guestId); setActive('Reservations'); }} />;
   if (active === 'Reservations') content = <ReservationsCenter base={base} canManage={isHotelAdmin} initialGuestId={reservationGuestId} onGuestConsumed={() => setReservationGuestId(null)} />;
   if (active === 'Requests') content = <RequestsCenter focusedRequestId={focusedRequestId} onFocusConsumed={() => setFocusedRequestId(null)} />;
