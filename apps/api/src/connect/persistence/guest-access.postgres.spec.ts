@@ -2,7 +2,7 @@ import { guestBrowserTests } from '../http/guest-browser.postgres';
 import { guestHttpTests } from '../http/guest-http.postgres';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { PostgresGuestAccessRepository } from './guest-access.repository';
+import { PostgresGuestAccessRepository, SHOWROOM_GUEST_POLICY } from './guest-access.repository';
 import { GUEST_PROTOCOL, GuestExchangeRepository, GuestProtocolDenied } from '../protocol/guest-access.contracts';
 import { ConnectService } from '../connect.service';
 import { ReservationsService } from '../../reservations/reservations.service';
@@ -211,6 +211,44 @@ integration('CONNECT-SEC-02 real PostgreSQL18: distinct backend connections', ()
     await expect(a.guestConnectIdempotency.update({ where: { id: claim.id }, data: { payloadHash: fingerprint() } })).rejects.toThrow();
     const foreign = await a.guestRequest.create({ data: { tenantId: 'cs02-b', reservationId: 'cs02-res-b', propertyId: 'cs02-b-property', guestId: 'cs02-b-guest', title: 'SYNTHETIC', message: 'SYNTHETIC', category: 'OTHER' } });
     await expect(a.guestConnectIdempotency.update({ where: { id: claim.id }, data: { resultRequestId: foreign.id } })).rejects.toThrow();
+  });
+  it('keeps Showroom reissue and revoke atomic, auditable, and separate from legacy roots', async () => {
+    const repo = new PostgresGuestAccessRepository(a, SHOWROOM_GUEST_POLICY, 'showroom-proof');
+    const second = new PostgresGuestAccessRepository(b, SHOWROOM_GUEST_POLICY, 'showroom-proof');
+    const reservationId = 'cs02-showroom-a';
+    await a.reservation.create({ data: {
+      id: reservationId, tenantId: tenant, propertyId: 'cs02-a-property', roomTypeId: 'cs02-a-type',
+      guestId: 'cs02-a-guest', confirmationCode: 'SYNTHETIC-SHOWROOM', status: 'CONFIRMED',
+      checkIn: new Date(Date.now() - 60000), checkOut: new Date(Date.now() + 86400000),
+    } });
+    const operator = { tenantId: tenant, userId: 'cs02-staff', sessionHash: fingerprint() };
+    const access = () => ({ codeHash: fingerprint(), rootHash: fingerprint() });
+    await a.user.create({ data: { id: operator.userId, name: 'SYNTHETIC', email: 'operator@example.invalid',
+      passwordHash: 'disabled-synthetic-only', memberships: { create: { tenantId: tenant, role: 'HOTEL_STAFF' } } } });
+    await a.session.create({ data: { userId: operator.userId, activeTenantId: tenant, tokenHash: operator.sessionHash, expiresAt: new Date(Date.now() + 60000) } });
+    await expect(repo.manageShowroomAdmission(operator, 'cs02-res-b', access())).rejects.toThrow(GuestProtocolDenied);
+    await expect(repo.manageShowroomAdmission(operator, res, access())).rejects.toThrow(GuestProtocolDenied);
+    await expect(repo.manageShowroomAdmission({ ...operator, sessionHash: fingerprint() }, reservationId, access())).rejects.toThrow(GuestProtocolDenied);
+    const first = access();
+    await repo.manageShowroomAdmission(operator, reservationId, first);
+    await expect(repoA.createBootstrap({ tenantId: tenant, reservationId, codeHash: fingerprint() })).rejects.toThrow(GuestProtocolDenied);
+    const legacy = new ConnectService(a as never, {} as never);
+    await expect(legacy.issue(tenant, reservationId)).rejects.toThrow('Connect access not found');
+    await expect(legacy.revoke(tenant, reservationId)).rejects.toThrow('Connect access not found');
+    const keys = [fingerprint(), fingerprint()];
+    const replay = await Promise.all([ok(exchange(repo, first.codeHash, keys[0])), ok(exchange(second, first.codeHash, keys[1]))]);
+    expect(replay.filter(Boolean)).toHaveLength(1);
+    const winner = keys[replay.indexOf(true)];
+    await expect(repo.manageShowroomAdmission(operator, reservationId, first)).rejects.toThrow(GuestProtocolDenied);
+    await expect(second.checkSession(winner)).resolves.toHaveProperty('tenantId', tenant);
+    const next = access();
+    await repo.manageShowroomAdmission(operator, reservationId, next);
+    await expect(second.checkSession(winner)).rejects.toThrow(GuestProtocolDenied);
+    await second.manageShowroomAdmission(operator, reservationId);
+    await expect(exchange(repo, next.codeHash)).rejects.toThrow(GuestProtocolDenied);
+    const audits = await a.auditLog.findMany({ where: { tenantId: tenant, resourceType: 'showroom_guest_access', actorUserId: operator.userId } });
+    expect(audits).toHaveLength(3);
+    expect(audits.every(event => ![operator.sessionHash, first.codeHash, next.codeHash, ...keys].some(secret => JSON.stringify(event).includes(secret)))).toBe(true);
   });
   guestHttpTests(() => ({ a, b, blocker, monitor, pidA, pidB, queue, blocked, mint }));
   if (process.env.CONNECT_SEC04_PLAYWRIGHT) guestBrowserTests(() => a);
