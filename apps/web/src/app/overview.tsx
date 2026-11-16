@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { hotelCalendarDay } from './stay-date';
 
 type Guest = {
   id: string;
@@ -15,6 +16,7 @@ type Reservation = {
   status: 'PENDING' | 'CONFIRMED' | 'CHECKED_IN' | 'CHECKED_OUT' | 'CANCELED' | 'NO_SHOW' | string;
   checkIn: string;
   checkOut: string;
+  property?: { timezone?: string };
   guest?: { firstName: string; lastName: string };
   room?: { number: string } | null;
 };
@@ -35,15 +37,11 @@ type OverviewData = {
   guests: Guest[];
   reservations: Reservation[];
   requests: GuestRequest[];
+  rooms: { occupancyStatus: string; readinessStatus: string }[];
 };
 
 const OPEN_REQUEST_STATUSES = new Set(['CREATED', 'ACKNOWLEDGED', 'IN_PROGRESS']);
 const ACTIVE_RESERVATION_STATUSES = new Set(['PENDING', 'CONFIRMED', 'CHECKED_IN']);
-
-function isSameLocalDay(value: string, day: Date) {
-  const date = new Date(value);
-  return date.getFullYear() === day.getFullYear() && date.getMonth() === day.getMonth() && date.getDate() === day.getDate();
-}
 
 function ageLabel(value: string) {
   const minutes = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 60000));
@@ -55,35 +53,39 @@ function ageLabel(value: string) {
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, { credentials: 'include' });
+  const response = await fetch(url, { credentials: 'include', cache: 'no-store' });
   if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
   return response.json() as Promise<T>;
 }
 
-export function Overview({ base }: { base: string }) {
+export function Overview({ base, onOpenRooms }: { base: string; onOpenRooms: () => void }) {
   const [data, setData] = useState<OverviewData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const generation = useRef(0);
 
   const load = useCallback(async () => {
+    const request = ++generation.current;
     setLoading(true);
     setError(null);
     try {
-      const [guests, reservations, requests] = await Promise.all([
+      const [guests, reservations, requests, rooms] = await Promise.all([
         fetchJson<Guest[]>(`${base}/guests`),
         fetchJson<Reservation[]>(`${base}/reservations`),
         fetchJson<GuestRequest[]>(`${base}/requests`),
+        fetchJson<OverviewData['rooms']>(`${base}/rooms`),
       ]);
-      setData({ guests, reservations, requests });
+      if (request === generation.current) setData({ guests, reservations, requests, rooms });
     } catch {
-      setError('Vantara could not load the live hotel overview.');
+      if (request === generation.current) setError('Vantara could not load the live hotel overview.');
     } finally {
-      setLoading(false);
+      if (request === generation.current) setLoading(false);
     }
   }, [base]);
 
   useEffect(() => {
     void load();
+    return () => { generation.current++; };
   }, [load]);
 
   const summary = useMemo(() => {
@@ -93,8 +95,21 @@ export function Overview({ base }: { base: string }) {
     const activeReservations = data.reservations.filter((reservation) => ACTIVE_RESERVATION_STATUSES.has(reservation.status)).length;
     const openRequests = data.requests.filter((request) => OPEN_REQUEST_STATUSES.has(request.status));
     const urgentRequests = openRequests.filter((request) => request.priority === 'URGENT').length;
-    const arrivals = data.reservations.filter((reservation) => isSameLocalDay(reservation.checkIn, today) && !['CANCELED', 'NO_SHOW'].includes(reservation.status)).length;
-    const departures = data.reservations.filter((reservation) => isSameLocalDay(reservation.checkOut, today) && !['CANCELED', 'NO_SHOW'].includes(reservation.status)).length;
+    const propertyDays = new Map<string, string>();
+    const countDays = { arrivals: 0, departures: 0 };
+    for (const stay of data.reservations) {
+      if (stay.status === 'CANCELED' || stay.status === 'NO_SHOW') continue;
+      const zone = stay.property?.timezone ?? 'UTC';
+      let day = propertyDays.get(zone);
+      if (!day) {
+        day = hotelCalendarDay(today, zone);
+        propertyDays.set(zone, day);
+      }
+      if (stay.checkIn.slice(0, 10) === day) countDays.arrivals++;
+      if (stay.checkOut.slice(0, 10) === day) countDays.departures++;
+    }
+    const readyRooms = data.rooms.filter(room => room.occupancyStatus === 'VACANT' && room.readinessStatus === 'READY').length;
+    const blockedRooms = data.rooms.filter(room => room.readinessStatus !== 'READY').length;
     const checkedIn = data.reservations.filter((reservation) => reservation.status === 'CHECKED_IN').length;
     const recentRequests = [...data.requests]
       .filter((request) => OPEN_REQUEST_STATUSES.has(request.status))
@@ -114,8 +129,10 @@ export function Overview({ base }: { base: string }) {
       activeReservations,
       openRequests: openRequests.length,
       urgentRequests,
-      arrivals,
-      departures,
+      ...countDays,
+      readyRooms,
+      blockedRooms,
+      roomCount: data.rooms.length,
       checkedIn,
       recentRequests,
       reservationStates,
@@ -132,7 +149,7 @@ export function Overview({ base }: { base: string }) {
   }
 
   return <>
-    <div className="truth-banner"><span className="truth-signal" /><div><strong>Source-of-truth mode</strong><span>Every number below is derived from the active hotel tenant. No demonstration metrics.</span></div><button onClick={() => void load()}>Refresh</button></div>
+    <div className="truth-banner"><span className="truth-signal" /><div><strong>Hotel operations</strong><span>Arrivals and departures follow each property’s local date.</span></div><button onClick={() => void load()}>Refresh</button></div>
 
     <section className="metrics" aria-label="Live hotel metrics">
       <Metric label="Active guests" value={summary.activeGuests} detail="Guest profiles currently active" />
@@ -166,12 +183,11 @@ export function Overview({ base }: { base: string }) {
           : summary.recentRequests.map((request) => <div className="request" key={request.id}><div><strong>{request.title}</strong><span>{request.room?.number ? `Room ${request.room.number} · ` : ''}{request.guest ? `${request.guest.firstName} ${request.guest.lastName} · ` : ''}{ageLabel(request.createdAt)}</span></div><b className={request.priority === 'URGENT' ? 'danger-pill' : ''}>{request.status.replaceAll('_', ' ')}</b></div>)}
       </div>
 
-      <div className="panel intelligence connected-intelligence">
-        <div className="intel-orbit"><span /><span /><span /></div>
-        <span className="panel-kicker">VANTARA INTELLIGENCE</span>
-        <h2>Operational context, not decorative AI.</h2>
-        <p>The intelligence layer now has a clean path to tenant-scoped guests, reservations and requests. Recommendations remain off until we can prove their inputs and outputs.</p>
-        <div className="intel-footer">DATA FOUNDATION <span>CONNECTED</span></div>
+      <div className="panel">
+        <div className="panel-head"><div><span className="panel-kicker">Inventory</span><h2>Room readiness</h2></div><button className="refresh-button" onClick={onOpenRooms}>Open rooms</button></div>
+        {summary.roomCount === 0 ? <div className="overview-empty">No rooms in inventory yet.</div>
+          : <><Pulse label="Available for check-in" detail="Vacant and ready" value={summary.readyRooms} />
+            <Pulse label="Not ready" detail="Cleaning, maintenance or out of service" value={summary.blockedRooms} /></>}
       </div>
     </section>
   </>;

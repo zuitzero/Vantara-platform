@@ -101,3 +101,17 @@ API Security CI checks real Nest HTTP, the prefixed health contract, read-only d
 For experimental CONNECT-SEC-04 browser proof, use the **Connect persistence, Nest HTTPS and Chromium on PostgreSQL** step of API Security CI on a PR. That step prepares its own disposable `vantara_connect_sec02` database and TLS certificate, opts into the shell inside the harness and runs Chromium with certificate verification. It is separate from the Pilot CI database and the Mac mini rehearsal. See [the browser harness](security/CONNECT_SEC_04_BROWSER.md) and [API Security CI workflow](../.github/workflows/api-security-ci.yml).
 
 The repository is reported public in issue #57. The founder should confirm intended visibility and review Git history for secrets before external sharing or deployment. [DEMO-02 issue](https://github.com/zuitzero/Vantara-platform/issues/57)
+
+## Release 1.0 · Product stability rehearsal
+
+Record **PASS / FAIL / BLOCKED / NOT RUN** with the exact package SHA for each row. The founder's Mac mini rehearsal remains **NOT RUN** until the founder records results. Automated Chromium covers a mobile viewport and a separate A/B synthetic PostgreSQL fixture.
+
+| Check | Founder sequence |
+| --- | --- |
+| Session and mobile | Sign in with the existing A/B credentials in separate browser profiles. Verify the hotel name, use the horizontal module navigation at a phone-width viewport, sign out, and revisit the Command Center. Expect the sign-in gate. |
+| Dashboard and inventory | Refresh Overview and compare it with Rooms and Reservations for the same hotel. The arrival/departure window uses the property date. Use the room readiness card to navigate to Rooms. |
+| Local Connect and isolation | Follow the existing Founder rehearsal above. Check that the request can be opened from the persisted notification, including after a page reload. Confirm the notification clears for the reader and no A request or notice appears in B. |
+| Inventory writes, check-in/out, housekeeping and maintenance | Use a separate, authorized synthetic rehearsal fixture with an active local trial, a vacant ready room, an assignable housekeeping member and an assignable maintenance member. Create a guest and stay, assign a room and confirm. Check in, then check out. Expect occupied → vacant with cleaning, exactly one blocking turnover task, and ready again after completing turnover. A separately assigned blocking maintenance ticket should switch readiness to maintenance and back on resolution. |
+| CRM | On the separate fixture, open Guest CRM, save a synthetic tag and note, switch guests, then return to the original profile. Verify persistence and that the draft stays with its original editing session. Keep guest A absent from hotel B. |
+
+Keep the original Pilot database for its known legacy Connect scenario. Its provenance check expects the original fixture shape and its constrained runtime can lack permissions or entitlement for broader Release 1.0 writes. If there is no eligible fixture or the read-only readiness check reports a missing current confirmed stay, record **BLOCKED** and leave the existing dataset intact. The integrated GitHub Actions test creates its own fixtures in the disposable Connect PostgreSQL service. A local fixture approval and any capability URLs stay outside review evidence.

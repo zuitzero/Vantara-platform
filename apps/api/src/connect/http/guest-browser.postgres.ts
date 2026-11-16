@@ -472,11 +472,41 @@ export function guestBrowserTests(database: () => PrismaClient) {
         stage = 'operations dashboard and browser navigation';
         await a.goto(origin + '/', { waitUntil: 'domcontentloaded' });
         await a.getByRole('heading', { name: 'Stay pipeline' }).waitFor();
+        await a.getByRole('heading', { name: 'Room readiness' }).waitFor();
         const modules = a.getByRole('navigation', { name: 'Hotel modules' });
-        await modules.getByRole('button', { name: /Rooms/ }).click();
+        await a.getByRole('button', { name: 'Open rooms' }).click();
         await a.getByText('502', { exact: true }).waitFor();
         await modules.getByRole('button', { name: /Guests/ }).click();
         await a.getByText('Synthetic Turnover', { exact: true }).waitFor();
+
+        stage = 'CRM tenant scope, profile retry and durable notes';
+        await call(b, `guests/${guest.id}/crm`, 404);
+        await call(b, `guests/${guest.id}/crm/notes`, 404, 'POST', { body: 'A foreign note must never persist' });
+        await a.setViewportSize({ width: 360, height: 780 });
+        const crmPath = '/api/guests/' + guest.id + '/crm';
+        await a.route((url: URL) => url.pathname === crmPath, (route: any) => route.fulfill({ status: 503 }), { times: 1 });
+        await modules.getByRole('button', { name: /CRM/ }).click();
+        await a.getByRole('button', { name: /Synthetic Turnover/i }).click();
+        const profile = a.locator('.crm-profile');
+        await profile.getByRole('button', { name: 'Retry profile' }).click();
+        await profile.getByRole('heading', { name: 'Synthetic Turnover' }).waitFor();
+        await profile.getByLabel('Guest tags').fill('Synthetic return stay');
+        await profile.getByLabel('Guest preferences').fill('arrival=quiet');
+        await profile.getByRole('button', { name: 'Save guest memory' }).click();
+        await profile.getByLabel('New CRM note').fill('Synthetic arrival follow-up');
+        await profile.getByRole('button', { name: 'Add note' }).click();
+        await profile.getByText('Synthetic arrival follow-up', { exact: true }).waitFor();
+        const crm = await call(a, `guests/${guest.id}/crm`);
+        check(crm.tags.some((tag: any) => tag.label === 'Synthetic return stay') &&
+          crm.preferences.some((preference: any) => preference.key === 'arrival' && preference.value === 'quiet') &&
+          crm.notes.some((note: any) => note.body === 'Synthetic arrival follow-up'), 'CRM_CHANGES_NOT_PERSISTED');
+
+        stage = 'CRM guest switch discards unsaved former profile state';
+        await profile.getByLabel('New CRM note').fill('Unsubmitted draft from the prior guest');
+        await a.getByRole('button', { name: /SYNTHETIC SYNTHETIC/i }).click();
+        await profile.getByRole('heading', { name: 'SYNTHETIC SYNTHETIC', exact: true }).waitFor();
+        check(await profile.getByLabel('New CRM note').inputValue() === '', 'CRM_DRAFT_CROSSED_GUESTS');
+        check(await a.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'CRM_MOBILE_OVERFLOW');
         await b.goto(origin + '/', { waitUntil: 'domcontentloaded' });
         await b.getByRole('navigation', { name: 'Hotel modules' }).getByRole('button', { name: /Rooms/ }).click();
         await b.getByText('101', { exact: true }).waitFor();
