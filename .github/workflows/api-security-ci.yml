@@ -145,5 +145,4 @@ jobs:
           NGINX_BIN: /usr/sbin/nginx
         run: |
           createdb vantara_showroom
-          pnpm --filter @vantara/api exec prisma migrate deploy
-          node apps/api/scripts/showroom-ci.cjs
+          SHOWROOM_PLAYWRIGHT="$RUNNER_TEMP/connect-browser/node_modules/playwright" node apps/api/scripts/showroom-ci.cjs

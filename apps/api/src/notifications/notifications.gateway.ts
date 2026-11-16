@@ -46,6 +46,9 @@ export class NotificationsGateway implements OnGatewayConnection {
       const recipientId = workspace.user.id;
       const role = workspace.membership.role;
 
+      if (configuration(process.env)?.guestProof && !['HOTEL_ADMIN', 'HOTEL_STAFF'].includes(role)) {
+        throw new UnauthorizedException('Showroom staff realtime only.');
+      }
       if (!['HOTEL_ADMIN', 'HOTEL_STAFF', 'GUEST'].includes(role)) throw new UnauthorizedException('Hotel realtime only.');
       const access = await this.rbac.getTenantAccess(recipientId, tenantId);
       if (access?.tenantType !== 'HOTEL') throw new UnauthorizedException('Hotel membership required.');
@@ -99,13 +102,9 @@ export class NotificationsGateway implements OnGatewayConnection {
   }
 
   private readCookie(header: string, name: string) {
-    return header
-      .split(';')
-      .map((part) => part.trim())
-      .find((part) => part.startsWith(`${name}=`))
-      ?.split('=')
-      .slice(1)
-      .join('=');
+    const matches = header.split(';').map(part => part.trim()).filter(part => part.startsWith(`${name}=`));
+    if (configuration(process.env)?.guestProof && matches.length !== 1) return undefined;
+    return matches[0]?.slice(name.length + 1);
   }
 }
 

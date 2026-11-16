@@ -4,7 +4,7 @@ const { activeRoutes } = require('./showroom-policy.cjs');
 
 function renderShowroom(config, { guestProof = false } = {}) {
   const baseline = render(config);
-  const host = new URL(config.publicOrigin).host;
+  const { host, hostname } = new URL(config.publicOrigin);
   const map = activeRoutes(guestProof).map(([method, pattern, service]) => `    "~^${method}:${pattern}$" ${service};`).join('\n');
   const prefix = baseline.slice(0, baseline.indexOf('  server { listen 8080 default_server;'))
     .replace('http {', 'http {\n  map_hash_bucket_size 128;')
@@ -28,7 +28,7 @@ ${map}
   server { listen 8080 default_server; server_name _; return 404; }
   server {
     listen 8080;
-    server_name ${host};
+    server_name ${hostname};
     add_header Cache-Control "no-store" always;
     add_header Referrer-Policy "no-referrer" always;
     add_header X-Content-Type-Options "nosniff" always;
