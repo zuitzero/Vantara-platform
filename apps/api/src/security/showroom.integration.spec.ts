@@ -3,9 +3,12 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import { PrismaClient } from '@prisma/client';
 import { createHash, randomBytes, scryptSync } from 'node:crypto';
-import { fork, spawn, type ChildProcess } from 'node:child_process';
+import { fork, spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createServer, request, type OutgoingHttpHeaders } from 'node:http';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { request as httpsRequest } from 'node:https';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationsGateway } from '../notifications/notifications.gateway';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { once } from 'node:events';
@@ -21,8 +24,10 @@ import { configureShowroomApi, verifyShowroomDatabase, verifyShowroomOperator } 
 const { renderShowroom } = require('../../../../infra/staging/showroom-gateway.cjs');
 const example = require('../../../../infra/staging/staging.example.json');
 const integration = process.env.SHOWROOM_CI_DB ? describe : describe.skip;
-const origin = example.publicOrigin as string;
-const host = new URL(origin).host;
+let origin = example.publicOrigin as string;
+let host = new URL(origin).host;
+let gatewayPort: number;
+let certificate: Buffer;
 const key = randomBytes(32).toString('base64url');
 const pathCanary = 'synthetic-' + randomBytes(32).toString('hex');
 const payloadCanary = 'synthetic-' + randomBytes(24).toString('hex');
@@ -31,20 +36,25 @@ function check(value: unknown, label: string): asserts value { if (!value) throw
 
 function call(port: number, path: string, method = 'GET', headers: OutgoingHttpHeaders = {}, body?: string) {
   return new Promise<{ status: number; headers: Record<string, string | string[] | undefined>; body: string }>((done, fail) => {
-    const req = request({ host: '127.0.0.1', port, path, method, headers: { Host: host, ...headers } }, res => {
+    const transport = port === gatewayPort ? httpsRequest : request;
+    const req = transport({ host: '127.0.0.1', port, ca: certificate, servername: new URL(origin).hostname, path, method, headers: { Host: host, ...headers } }, res => {
       let text = '';
       res.setEncoding('utf8').on('data', chunk => { text += chunk; });
       res.on('end', () => done({ status: res.statusCode!, headers: res.headers, body: text }));
     });
     req.setTimeout(4000, () => req.destroy());
-    req.on('error', () => fail(new Error('SHOWROOM_HTTP_FAILED')));
+    req.on('error', (error: NodeJS.ErrnoException) => {
+      const code = typeof error.code === 'string' && /^[A-Z0-9_]+$/.test(error.code) ? error.code : 'UNKNOWN';
+      fail(new Error('SHOWROOM_HTTP_FAILED ' + code));
+    });
     req.end(body);
   });
 }
 
 function upgrade(port: number, requestOrigin = origin, proof?: string) {
   return new Promise<number>((done, fail) => {
-    const req = request({ host: '127.0.0.1', port, path: '/socket.io/?EIO=4&transport=websocket',
+    const transport = port === gatewayPort ? httpsRequest : request;
+    const req = transport({ host: '127.0.0.1', port, ca: certificate, servername: new URL(origin).hostname, path: '/socket.io/?EIO=4&transport=websocket',
       headers: {
         Host: host, Origin: requestOrigin, Upgrade: 'websocket', Connection: 'Upgrade',
         'Sec-WebSocket-Key': randomBytes(16).toString('base64'), 'Sec-WebSocket-Version': '13',
@@ -73,18 +83,19 @@ integration('Showroom real Nginx, Next, Nest and disposable PostgreSQL', () => {
   let api: NestExpressApplication;
   let next: ChildProcess;
   let nginx: ChildProcess;
-  let apiPort: number, webPort: number, gatewayPort: number;
+  let apiPort: number, webPort: number;
   let dir: string;
   let requestA: string, requestB: string;
   let guestCookie: string;
   let operatorPair: string, proofStay: string, foreignStay: string;
+  const staff = new Map<string, string>();
   const previous = { ...process.env };
   const logs: string[] = [];
   const secrets = [key, pathCanary, payloadCanary];
   const password = randomBytes(24).toString('base64url');
   const proof = { 'X-Vantara-Showroom-Ingress': key };
   secrets.push(password);
-  const forwarded = { 'X-Forwarded-Proto': 'https', 'X-Forwarded-Host': host, 'X-Forwarded-For': '127.0.0.1' };
+  const forwarded = { 'X-Forwarded-Proto': 'https', 'X-Forwarded-For': '127.0.0.1' };
 
   beforeAll(async () => {
     const url = new URL(process.env.SHOWROOM_CI_DB!);
@@ -96,51 +107,72 @@ integration('Showroom real Nginx, Next, Nest and disposable PostgreSQL', () => {
     await verifyShowroomDatabase(db);
     check(await db.tenant.count() === 0, 'SHOWROOM_FIXTURES_NOT_EMPTY');
 
-    for (const side of ['a', 'b']) {
-      const tenant = await db.tenant.create({ data: { name: 'SYNTHETIC', slug: 'cs05-' + side, type: 'HOTEL' } });
-      const property = await db.property.create({ data: { tenantId: tenant.id, name: 'SYNTHETIC' } });
-      const guest = await db.guest.create({ data: { tenantId: tenant.id, propertyId: property.id, firstName: 'SYNTHETIC', lastName: side } });
-      const salt = randomBytes(16).toString('hex');
-      await db.user.create({ data: {
-        email: side + '@example.invalid', name: 'SYNTHETIC',
-        passwordHash: 'scrypt:' + salt + ':' + createHash('sha256').update(scryptSync(password, salt, 64)).digest('hex'),
-        memberships: { create: { tenantId: tenant.id, role: 'HOTEL_ADMIN' } },
-      } });
-      const item = await db.guestRequest.create({ data: {
-        tenantId: tenant.id, propertyId: property.id, guestId: guest.id, title: 'SYNTHETIC ' + side,
-        message: 'SYNTHETIC only', category: 'OTHER',
-      } });
-      if (side === 'a') {
-        requestA = item.id;
-        const operator = await db.user.create({ data: {
-          email: 'operator@example.invalid', name: 'SYNTHETIC OPERATOR',
+    const fixture = new URL(process.env.SHOWROOM_CI_FIXTURE_DB!);
+    check(fixture.origin === url.origin && fixture.host === url.host && fixture.protocol === url.protocol &&
+      fixture.pathname === url.pathname && fixture.search === url.search && !fixture.hash &&
+      fixture.username === 'vantara_showroom_fixture', 'FIXTURE_ROLE_TARGET');
+    const seed = new PrismaClient({ datasources: { db: { url: fixture.toString() } }, log: [] });
+    try {
+      for (const side of ['a', 'b']) {
+        const tenant = await seed.tenant.create({ data: { name: 'SYNTHETIC', slug: 'cs05-' + side, type: 'HOTEL' } });
+        const property = await seed.property.create({ data: { tenantId: tenant.id, name: 'SYNTHETIC' } });
+        const guest = await seed.guest.create({ data: { tenantId: tenant.id, propertyId: property.id, firstName: 'SYNTHETIC', lastName: side } });
+        const salt = randomBytes(16).toString('hex');
+        await seed.user.create({ data: {
+          email: side + '@example.invalid', name: 'SYNTHETIC',
           passwordHash: 'scrypt:' + salt + ':' + createHash('sha256').update(scryptSync(password, salt, 64)).digest('hex'),
-          memberships: { create: { tenantId: tenant.id, role: 'HOTEL_STAFF' } },
+          memberships: { create: { tenantId: tenant.id, role: 'HOTEL_ADMIN' } },
         } });
-        operatorPair = tenant.id + ':' + operator.id;
-      } else requestB = item.id;
-      const type = await db.roomType.create({ data: { propertyId: property.id, name: 'SYNTHETIC', code: 'DEMO' } });
-      const stay = await db.reservation.create({ data: {
-        tenantId: tenant.id, guestId: guest.id, propertyId: property.id, roomTypeId: type.id,
-        confirmationCode: 'SYNTHETIC-' + side, status: 'CONFIRMED', checkIn: new Date(Date.now() - 1000),
-        checkOut: new Date(Date.now() + 86400000),
-      } });
-      if (side === 'b') { foreignStay = stay.id; continue; }
-      proofStay = (await db.reservation.create({ data: {
-        tenantId: tenant.id, guestId: guest.id, propertyId: property.id, roomTypeId: type.id,
-        confirmationCode: 'SYNTHETIC-PROOF-A', status: 'CONFIRMED', checkIn: stay.checkIn, checkOut: stay.checkOut,
-      } })).id;
-      await db.guestConnectAccess.create({ data: {
-        tenantId: tenant.id, reservationId: stay.id, tokenHash: digest(pathCanary), expiresAt: stay.checkOut,
-      } });
-      // Mint only in the isolated test repository. The hosted HTTP adapter stays off.
-      const repository = new PostgresGuestAccessRepository(db, GUEST_PROTOCOL);
-      const code = randomBytes(32).toString('base64url'), guestSecret = randomBytes(32).toString('base64url');
-      secrets.push(code, guestSecret);
-      await repository.createBootstrap({ tenantId: tenant.id, reservationId: stay.id, codeHash: digest(code) });
-      await repository.exchangeOnce({ codeHash: digest(code), freshSessionHash: digest(guestSecret) });
-      guestCookie = '__Host-vantara_guest=' + guestSecret;
-    }
+        const item = await seed.guestRequest.create({ data: {
+          tenantId: tenant.id, propertyId: property.id, guestId: guest.id, title: 'SYNTHETIC ' + side,
+          message: 'SYNTHETIC only', category: 'OTHER',
+        } });
+        if (side === 'a') {
+          requestA = item.id;
+          const operator = await seed.user.create({ data: {
+            email: 'operator@example.invalid', name: 'SYNTHETIC OPERATOR',
+            passwordHash: 'scrypt:' + salt + ':' + createHash('sha256').update(scryptSync(password, salt, 64)).digest('hex'),
+            memberships: { create: { tenantId: tenant.id, role: 'HOTEL_STAFF' } },
+          } });
+          operatorPair = tenant.id + ':' + operator.id;
+        } else requestB = item.id;
+        const type = await seed.roomType.create({ data: { propertyId: property.id, name: 'SYNTHETIC', code: 'DEMO' } });
+        const stay = await seed.reservation.create({ data: {
+          tenantId: tenant.id, guestId: guest.id, propertyId: property.id, roomTypeId: type.id,
+          confirmationCode: 'SYNTHETIC-' + side, status: 'CONFIRMED', checkIn: new Date(Date.now() - 1000),
+          checkOut: new Date(Date.now() + 86400000),
+        } });
+        if (side === 'b') { foreignStay = stay.id; continue; }
+        const room = await seed.room.create({ data: { propertyId: property.id, roomTypeId: type.id, number: '101' } });
+        proofStay = (await seed.reservation.create({ data: {
+          tenantId: tenant.id, guestId: guest.id, propertyId: property.id, roomTypeId: type.id,
+          roomId: room.id, confirmationCode: 'SYNTHETIC-PROOF-A', status: 'CONFIRMED', checkIn: stay.checkIn, checkOut: stay.checkOut,
+        } })).id;
+        await seed.guestConnectAccess.create({ data: {
+          tenantId: tenant.id, reservationId: stay.id, tokenHash: digest(pathCanary), expiresAt: stay.checkOut,
+        } });
+        // Mint only in the isolated test repository. The hosted HTTP adapter stays off.
+        const repository = new PostgresGuestAccessRepository(db, GUEST_PROTOCOL);
+        const code = randomBytes(32).toString('base64url'), guestSecret = randomBytes(32).toString('base64url');
+        secrets.push(code, guestSecret);
+        await repository.createBootstrap({ tenantId: tenant.id, reservationId: stay.id, codeHash: digest(code) });
+        await repository.exchangeOnce({ codeHash: digest(code), freshSessionHash: digest(guestSecret) });
+        guestCookie = '__Host-vantara_guest=' + guestSecret;
+      }
+
+    } finally { await seed.$disconnect(); }
+
+    const hostname = new URL(example.publicOrigin).hostname;
+    dir = await mkdtemp(join(tmpdir(), 'showroom-ci-'));
+    gatewayPort = await waitPort();
+    origin = example.publicOrigin + ':' + gatewayPort;
+    host = new URL(origin).host;
+    const cert = join(dir, 'gateway.crt'), keyFile = join(dir, 'gateway.key');
+    const createdKey = spawnSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes',
+      '-keyout', keyFile, '-out', cert, '-days', '1', '-subj', '/CN=' + hostname,
+      '-addext', 'subjectAltName=DNS:' + hostname + ',IP:127.0.0.1'], { stdio: 'ignore' });
+    check(createdKey.status === 0, 'DISPOSABLE_TLS_SETUP_FAILED');
+    certificate = await readFile(cert);
 
     Object.assign(process.env, {
       NODE_ENV: 'production', VANTARA_ENV: 'staging', WEB_ORIGIN: origin,
@@ -177,9 +209,13 @@ integration('Showroom real Nginx, Next, Nest and disposable PostgreSQL', () => {
       next.once('error', () => fail(new Error('SHOWROOM_NEXT_START_FAILED')));
     });
 
-    dir = await mkdtemp(join(tmpdir(), 'showroom-ci-'));
-    gatewayPort = await waitPort();
-    const nginxConfig = renderShowroom(example, { guestProof: true }).replaceAll('listen 8080', 'listen 127.0.0.1:' + gatewayPort)
+    const gatewayConfig = {
+      ...example, publicOrigin: origin, apiEnvironment: { ...example.apiEnvironment, WEB_ORIGIN: origin },
+      webEnvironment: { ...example.webEnvironment, WEB_ORIGIN: origin },
+    };
+    const nginxConfig = renderShowroom(gatewayConfig, { guestProof: true })
+      .replace('http {', 'http {\n ssl_certificate ' + cert + ';\n ssl_certificate_key ' + keyFile + ';')
+      .replaceAll('listen 8080', 'listen 127.0.0.1:' + gatewayPort + ' ssl')
       .replaceAll(example.webUpstream, 'http://127.0.0.1:' + webPort)
       .replaceAll(example.apiUpstream, 'http://127.0.0.1:' + apiPort);
     await writeFile(join(dir, 'nginx.conf'), nginxConfig);
@@ -252,6 +288,19 @@ integration('Showroom real Nginx, Next, Nest and disposable PostgreSQL', () => {
     }
   });
 
+  it('denies runtime DDL, elevated roles, identity editing and billing access', async () => {
+    const [row] = await db.$queryRaw<{ safe: boolean }[]>`
+      SELECT NOT has_schema_privilege('public', 'CREATE')
+        AND NOT has_column_privilege('memberships', 'role', 'UPDATE')
+        AND NOT has_column_privilege('users', 'passwordHash', 'UPDATE')
+        AND NOT has_table_privilege('users', 'INSERT')
+        AND NOT has_table_privilege('stripe_webhook_events', 'SELECT')
+        AND NOT has_table_privilege('_prisma_migrations', 'SELECT')
+        AND NOT pg_has_role('vantara_showroom_migrator', 'MEMBER')
+        AND NOT pg_has_role('vantara_showroom_fixture', 'MEMBER') AS safe`;
+    check(row?.safe, 'RUNTIME_ROLE_CAN_ESCALATE');
+  });
+
   it('requires gateway proof on both origins and permits only intended routes', async () => {
     check((await call(gatewayPort, '/')).status === 200, 'SHOWROOM_WEB_DENIED');
     check((await call(gatewayPort, '/onboarding')).status === 200, 'SHOWROOM_SIGNIN_PAGE_DENIED');
@@ -291,18 +340,22 @@ integration('Showroom real Nginx, Next, Nest and disposable PostgreSQL', () => {
     check((await call(gatewayPort, '/api/health', 'POST')).status === 404, 'METHOD_NOT_ENFORCED');
   });
 
+  async function login(side: string) {
+    const cached = staff.get(side);
+    if (cached) return cached;
+    const result = await call(gatewayPort, '/api/auth/login', 'POST',
+      { Origin: origin, 'Content-Type': 'application/json' },
+      JSON.stringify({ email: side + '@example.invalid', password }));
+    const cookie = result.headers['set-cookie']?.[0];
+    check(result.status === 201 && cookie && /; Secure/i.test(cookie) && /; HttpOnly/i.test(cookie) && !/Domain=/i.test(cookie),
+      'SHOWROOM_STAFF_COOKIE');
+    const pair = cookie.split(';')[0];
+    secrets.push(pair.split('=')[1]);
+    staff.set(side, pair);
+    return pair;
+  }
+
   it('keeps real staff auth and tenant scope, with no guest-to-staff authority', async () => {
-    const login = async (side: string) => {
-      const result = await call(gatewayPort, '/api/auth/login', 'POST',
-        { Origin: origin, 'Content-Type': 'application/json' },
-        JSON.stringify({ email: side + '@example.invalid', password }));
-      const cookie = result.headers['set-cookie']?.[0];
-      check(result.status === 201 && cookie && /; Secure/i.test(cookie) && /; HttpOnly/i.test(cookie) && !/Domain=/i.test(cookie),
-        'SHOWROOM_STAFF_COOKIE');
-      const pair = cookie.split(';')[0];
-      secrets.push(pair.split('=')[1]);
-      return pair;
-    };
     const staffA = await login('a'), staffB = await login('b');
     for (const [cookie, allowed, foreign] of [[staffA, requestA, requestB], [staffB, requestB, requestA]]) {
       check((await call(gatewayPort, '/api/requests/' + allowed, 'GET', { Cookie: cookie })).status === 200, 'OWN_REQUEST_DENIED');
@@ -322,14 +375,7 @@ integration('Showroom real Nginx, Next, Nest and disposable PostgreSQL', () => {
       await new Promise(done => setTimeout(done, 110)); // Keep routine requests within the actual ingress budget.
       return call(gatewayPort, '/api/' + path, 'POST', { ...common, ...headers }, JSON.stringify(body));
     };
-    const login = async (who: string) => {
-      const reply = await post('auth/login', { email: who + '@example.invalid', password });
-      const cookie = reply.headers['set-cookie']?.[0]?.split(';')[0];
-      check(reply.status === 201 && cookie, 'ADMISSION_LOGIN');
-      secrets.push(cookie.split('=')[1]);
-      return { Cookie: cookie };
-    };
-    const operator = await login('operator'), admin = await login('a');
+    const operator = { Cookie: await login('operator') }, admin = { Cookie: await login('a') };
     const issue = 'showroom-admission/issue', revoke = 'showroom-admission/revoke';
     const data = { reservationId: proofStay };
     const read = 'guest-connect/stay', exchange = 'guest-connect/session';
@@ -378,4 +424,116 @@ integration('Showroom real Nginx, Next, Nest and disposable PostgreSQL', () => {
     check(await upgrade(apiPort) !== 101, 'DIRECT_UPGRADE_ACCEPTED');
     check(await upgrade(apiPort, 'https://foreign.example.invalid', key) !== 101, 'ORIGIN_UPGRADE_GUARD_BYPASSED');
   });
+  it('runs the HTTPS fragment admission in Chromium without leaking the code to HTTP', async () => {
+    let checkpoint = 'bootstrap';
+    let browser: any;
+    try {
+      check(process.env.SHOWROOM_PLAYWRIGHT, 'SHOWROOM_CHROMIUM_MISSING');
+      const { chromium } = require(process.env.SHOWROOM_PLAYWRIGHT);
+      const nss = join(dir, 'pki', 'nssdb');
+      await mkdir(nss, { recursive: true });
+      for (const args of [['-N', '--empty-password'], ['-A', '-t', 'C,,', '-n', 'Disposable Showroom', '-i', join(dir, 'gateway.crt')]]) {
+        check(spawnSync('certutil', ['-d', 'sql:' + nss, ...args], { stdio: 'ignore' }).status === 0, 'SHOWROOM_BROWSER_CERT');
+      }
+      const headers = { Cookie: await login('operator'), Origin: origin,
+        'X-Vantara-Guest': '1', 'Content-Type': 'application/json' };
+      const issue = () => call(gatewayPort, '/api/showroom-admission/issue', 'POST', headers, JSON.stringify({ reservationId: proofStay }));
+      const issued = await issue();
+      check(issued.status === 200, 'BROWSER_INVITE_REJECTED');
+      const { code } = JSON.parse(issued.body);
+      secrets.push(code);
+      const hostname = new URL(origin).hostname;
+      browser = await chromium.launch({
+        args: ['--no-proxy-server', '--host-resolver-rules=MAP ' + hostname + ' 127.0.0.1'],
+        env: { PATH: process.env.PATH, XDG_DATA_HOME: dir, XDG_CONFIG_HOME: dir },
+      });
+      const context = await browser.newContext({ viewport: { width: 360, height: 780 }, isMobile: true, hasTouch: true });
+      await context.route((url: URL) => url.origin !== origin, (route: any) => route.abort());
+      const tab = await context.newPage();
+      tab.setDefaultTimeout(6000);
+      const seen: { url: string; referer: string }[] = [];
+      tab.on('request', (req: any) => seen.push({ url: req.url(), referer: req.headers().referer ?? '' }));
+      checkpoint = 'fragment and CSP';
+      const page = await tab.goto(origin + '/connect#code=' + code);
+      const csp = page.headers()['content-security-policy'] ?? '';
+      check(page.status() === 200 && csp.includes("connect-src 'self'") &&
+        csp.includes("form-action 'none'") && !csp.includes("'unsafe-inline'"), 'SHOWROOM_BROWSER_CSP');
+      const confirm = tab.getByRole('button', { name: 'Open my stay' });
+      await confirm.waitFor();
+      check(tab.url() === origin + '/connect' && seen.length === 1, 'SHOWROOM_BOOTSTRAP_BEFORE_CONFIRMATION');
+
+      checkpoint = 'exchange and preset';
+      await confirm.click();
+      await tab.getByText(/SYNTHETIC-PROOF-A/).waitFor();
+      const cookies = await context.cookies(origin);
+      const guest = cookies.find((entry: any) => entry.name === '__Host-vantara_guest');
+      if (guest) secrets.push(guest.value);
+      check(guest?.secure && guest.httpOnly && guest.sameSite === 'Lax' && guest.domain === hostname &&
+        !cookies.some((entry: any) => entry.name === 'vantara_session'), 'SHOWROOM_BROWSER_COOKIE');
+      await tab.getByRole('button', { name: 'Send request' }).click();
+      await tab.getByText('Request sent.', { exact: true }).waitFor();
+      check(await tab.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'SHOWROOM_MOBILE_WIDTH');
+
+      checkpoint = 'reissue and replay';
+      const renewed = await issue();
+      check(renewed.status === 200, 'BROWSER_REISSUE_FAILED');
+      secrets.push(JSON.parse(renewed.body).code);
+      await tab.reload();
+      await tab.getByText(/Guest access is unavailable/).waitFor();
+      await tab.goto(origin + '/connect#code=' + code);
+      await confirm.click();
+      await tab.getByText(/This link could not be opened/).waitFor();
+      check(seen.every(entry => !entry.url.includes(code) && !entry.referer.includes(code)), 'SHOWROOM_BROWSER_LEAK');
+    } catch {
+      // Browser errors may contain capability URLs or response details.
+      throw new Error('SHOWROOM_CHROMIUM_FAILED at ' + checkpoint);
+    } finally { await browser?.close(); }
+  }, 30000);
+
+  it('isolates authenticated staff WSS audiences and rejects a revoked session on reconnect', async () => {
+    const { io } = require(require.resolve('socket.io-client', { paths: [resolve('../web')] }));
+    const connect = (cookie: string) => io('https://127.0.0.1:' + gatewayPort + '/realtime', {
+      path: '/socket.io', transports: ['websocket'], reconnection: false,
+      ca: certificate, forceNew: true, extraHeaders: { Origin: origin, Host: host, Cookie: cookie },
+    });
+    const staffA = await login('a'), staffB = await login('b');
+    const a = connect(staffA), b = connect(staffB);
+    const notifications = api.get(NotificationsService);
+    const gateway = api.get(NotificationsGateway);
+    const tenantA = (await db.tenant.findUniqueOrThrow({ where: { slug: 'cs05-a' } })).id;
+    const room = `tenant:${tenantA}:audience:HOTEL`;
+    let foreign = 0;
+    b.on('notification', () => foreign++);
+    const waitForEvent = (client: any, event: string) => new Promise<void>((done, fail) => {
+      const timer = setTimeout(() => fail(new Error('WSS_' + event.toUpperCase() + '_MISSING')), 3000);
+      client.once(event, () => { clearTimeout(timer); done(); });
+    });
+    try {
+      await Promise.all([waitForEvent(a, 'connect'), waitForEvent(b, 'connect')]);
+      for (let tries = 0; tries < 40 && !(await gateway.server.in(room).fetchSockets()).length; tries++) {
+        await new Promise(done => setTimeout(done, 50));
+      }
+      check((await gateway.server.in(room).fetchSockets()).length === 1, 'WSS_TENANT_MEMBERSHIP');
+      const ambiguous = connect(staffA + '; ' + staffA);
+      try { await waitForEvent(ambiguous, 'disconnect'); }
+      finally { ambiguous.disconnect(); }
+      const event = { tenantId: tenantA, audience: 'HOTEL', severity: 'INFO', type: 'synthetic.wss',
+        title: 'SYNTHETIC', message: 'SYNTHETIC' } as const;
+      const delivered = waitForEvent(a, 'notification');
+      await notifications.publish(event);
+      await delivered;
+      const logout = await call(gatewayPort, '/api/auth/logout', 'POST', { Cookie: staffA, Origin: origin });
+      check(logout.status === 201, 'WSS_REVOKE_HTTP');
+      const disconnected = waitForEvent(a, 'disconnect');
+      await notifications.publish(event);
+      await disconnected;
+      const denied = connect(staffA);
+      try {
+        await waitForEvent(denied, 'disconnect');
+        check((await gateway.server.in(room).fetchSockets()).length === 0, 'WSS_REVOKED_REJOINED');
+      } finally { denied.disconnect(); }
+      check(foreign === 0, 'WSS_FOREIGN_DELIVERY');
+    } finally { a.disconnect(); b.disconnect(); }
+  });
+
 });
