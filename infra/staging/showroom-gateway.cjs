@@ -1,11 +1,11 @@
 // Offline rendering. Without the private include nginx cannot start.
 const { render } = require('./config.cjs');
-const { routes } = require('./showroom-policy.cjs');
+const { activeRoutes } = require('./showroom-policy.cjs');
 
-function renderShowroom(config) {
+function renderShowroom(config, { guestProof = false } = {}) {
   const baseline = render(config);
   const host = new URL(config.publicOrigin).host;
-  const map = routes.map(([method, pattern, service]) => `    "~^${method}:${pattern}$" ${service};`).join('\n');
+  const map = activeRoutes(guestProof).map(([method, pattern, service]) => `    "~^${method}:${pattern}$" ${service};`).join('\n');
   const prefix = baseline.slice(0, baseline.indexOf('  server { listen 8080 default_server;'))
     .replace('http {', 'http {\n  map_hash_bucket_size 128;')
     .replace('  limit_req_zone $binary_remote_addr zone=login_ip:1m rate=2r/m;', '');
@@ -73,4 +73,4 @@ ${map}
 `;
 }
 module.exports = { renderShowroom };
-if (require.main === module) process.stdout.write(renderShowroom(require('./staging.example.json')));
+if (require.main === module) process.stdout.write(renderShowroom(require('./staging.example.json'), { guestProof: process.argv[2] === '--disposable-guest-proof' }));

@@ -4,7 +4,9 @@ import { GuestRequestCategory, GuestRequestPriority } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RequestsService } from '../../requests/requests.service';
 import { GUEST_PROTOCOL, GuestProtocolDenied } from '../protocol/guest-access.contracts';
-import { GuestPayloadConflict, PostgresGuestAccessRepository } from '../persistence/guest-access.repository';
+import { GuestPayloadConflict, PostgresGuestAccessRepository, SHOWROOM_GUEST_POLICY } from '../persistence/guest-access.repository';
+import { verifyShowroomDatabase } from '../../security/showroom-security';
+import { configuration } from '../../../../../infra/staging/showroom-policy.cjs';
 import { digest, enabled } from './guest-http.security';
 
 export function requestInput(body: unknown) {
@@ -16,11 +18,44 @@ export function requestInput(body: unknown) {
       !Object.values(GuestRequestCategory).includes(category as any) || !Object.values(GuestRequestPriority).includes(priority as any) || !Number.isSafeInteger(guestCount) || (guestCount as number) < 1 || (guestCount as number) > 100) throw new GuestProtocolDenied();
   return { title: title.trim(), message: message.trim(), category: category as GuestRequestCategory, priority: priority as GuestRequestPriority, guestCount: guestCount as number };
 }
+function showroomRequest(body: unknown) {
+  if (!body || typeof body !== 'object' || !Object.hasOwn(body, 'preset') || Object.keys(body).length !== 1 ||
+      (body as { preset?: unknown }).preset !== 'TOWELS') throw new GuestProtocolDenied();
+  return { title: 'Fresh towels', message: 'Please bring two towels for this synthetic stay.', category: 'HOUSEKEEPING' };
+}
 const projection = { id: true, title: true, message: true, category: true, priority: true, status: true, createdAt: true, completedAt: true } as const;
 @Injectable()
 export class GuestHttpService {
   readonly repository: PostgresGuestAccessRepository;
-  constructor(private readonly db: PrismaService, private readonly requests: RequestsService) { this.repository = new PostgresGuestAccessRepository(db, GUEST_PROTOCOL); }
+  private readonly showroom: PostgresGuestAccessRepository;
+  constructor(private readonly db: PrismaService, private readonly requests: RequestsService) {
+    this.repository = new PostgresGuestAccessRepository(db, GUEST_PROTOCOL);
+    this.showroom = new PostgresGuestAccessRepository(db, SHOWROOM_GUEST_POLICY, 'showroom-proof');
+  }
+  private async repositoryFor(proof: boolean) {
+    if (!proof) {
+      await this.syntheticDatabase();
+      return this.repository;
+    }
+    try {
+      if (!configuration(process.env)?.guestProof) throw new GuestProtocolDenied();
+      await verifyShowroomDatabase(this.db);
+      return this.showroom;
+    } catch { throw new GuestProtocolDenied(); }
+  }
+  async manageShowroomAdmission(operator: { tenantId: string; userId: string; sessionHash: string }, reservationId: string, revoke: boolean) {
+    const repo = await this.repositoryFor(true);
+    if (revoke) {
+      await repo.manageShowroomAdmission(operator, reservationId);
+      return { revoked: true };
+    }
+    const code = randomBytes(32).toString('base64url');
+    const result = await repo.manageShowroomAdmission(operator, reservationId, {
+      codeHash: digest(code), rootHash: randomBytes(32).toString('hex'),
+    });
+    if (!result) throw new GuestProtocolDenied();
+    return { code, expiresAt: result.expiresAt };
+  }
   private async syntheticDatabase() {
     if (!enabled()) throw new GuestProtocolDenied();
     try {
@@ -36,15 +71,15 @@ export class GuestHttpService {
     const record = await this.repository.createBootstrap({ tenantId, reservationId, codeHash: digest(code), rootHash: digest(randomBytes(32).toString('base64url')) });
     return { code, expiresAt: record.expiresAt }; // Single authorized delivery, no URL or logs.
   }
-  async exchange(code: string) {
-    await this.syntheticDatabase();
+  async exchange(code: string, proof = false) {
+    const repo = await this.repositoryFor(proof);
     const secret = randomBytes(32).toString('base64url');
-    const record = await this.repository.exchangeOnce({ codeHash: digest(code), freshSessionHash: digest(secret) });
+    const record = await repo.exchangeOnce({ codeHash: digest(code), freshSessionHash: digest(secret) });
     return { secret, expiresAt: record.expiresAt };
   }
-  async stay(secret: string) {
-    await this.syntheticDatabase();
-    return this.repository.withSession(digest(secret), async (tx, scope, guestId) => {
+  async stay(secret: string, proof = false) {
+    const repo = await this.repositoryFor(proof);
+    return repo.withSession(digest(secret), async (tx, scope, guestId) => {
       const reservation = await tx.reservation.findFirstOrThrow({ where: { id: scope.reservationId, tenantId: scope.tenantId }, select: {
         confirmationCode: true, status: true, checkIn: true, checkOut: true, guest: { select: { firstName: true, lastName: true } }, property: { select: { name: true } }, room: { select: { number: true } }, roomType: { select: { name: true } },
       } });
@@ -52,10 +87,10 @@ export class GuestHttpService {
       return { reservation, requests };
     });
   }
-  async create(secret: string, key: string, body: unknown) {
-    await this.syntheticDatabase();
-    const input = requestInput(body); const keyHash = digest(key), payloadHash = digest(JSON.stringify(input));
-    const result = await this.repository.withSession(digest(secret), async (tx, scope, guestId) => {
+  async create(secret: string, key: string, body: unknown, proof = false) {
+    const repo = await this.repositoryFor(proof);
+    const input = requestInput(proof ? showroomRequest(body) : body); const keyHash = digest(key), payloadHash = digest(JSON.stringify(input));
+    const result = await repo.withSession(digest(secret), async (tx, scope, guestId) => {
       const where = { accessId: scope.accessId, generation: scope.generation, keyHash };
       const claim = await tx.guestConnectIdempotency.findUnique({ where: { accessId_generation_keyHash: where } });
       if (claim) {
@@ -63,6 +98,9 @@ export class GuestHttpService {
         const request = await tx.guestRequest.findFirst({ where: { id: claim.resultRequestId ?? '', tenantId: scope.tenantId, reservationId: scope.reservationId, guestId }, select: projection });
         if (!request) throw new GuestProtocolDenied();
         return { response: request, notification: null };
+      }
+      if (proof && await tx.guestConnectIdempotency.count({ where: { tenantId: scope.tenantId, reservationId: scope.reservationId } }) >= 3) {
+        throw new GuestPayloadConflict();
       }
       const request = await this.requests.createReservationRequestInTransaction(tx, scope.tenantId, scope.reservationId, input);
       await tx.guestConnectIdempotency.create({ data: { ...where, tenantId: scope.tenantId, reservationId: scope.reservationId, payloadHash, resultRequestId: request.id } });
@@ -73,5 +111,5 @@ export class GuestHttpService {
     if (result.notification) await this.requests.publishReservationRequest(result.notification).catch(() => undefined);
     return result.response;
   }
-  async logout(secret: string) { await this.syntheticDatabase(); return this.repository.revokeSession(digest(secret)); }
+  async logout(secret: string, proof = false) { return (await this.repositoryFor(proof)).revokeSession(digest(secret)); }
 }

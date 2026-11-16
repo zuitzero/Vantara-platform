@@ -76,3 +76,20 @@ test('real Nginx validates the generated Showroom config with inert loopback ups
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('the guest proof routes require a reserved origin and exact opt-in in all layers', () => {
+  const proof = { ...environment, SHOWROOM_GUEST_MODE: 'disposable-proof', SHOWROOM_REPLICAS: '1' };
+  assert.equal(configuration(proof).guestProof, true);
+  for (const change of [{ SHOWROOM_REPLICAS: '2' }, { SHOWROOM_GUEST_MODE: 'hosted' }, { WEB_ORIGIN: 'https://guest.example.com' }]) {
+    assert.throws(() => configuration({ ...proof, ...change }), /SHOWROOM_CONFIGURATION_REJECTED/);
+  }
+  const url = '/api/guest-connect/session';
+  assert.equal(target('POST', url), undefined);
+  assert.equal(target('POST', url, true), 'api');
+  assert.equal(target('GET', url, true), undefined);
+  assert.equal(target('POST', url + '?code=discard', true), undefined);
+  assert.equal(target('POST', '/api/showroom-admission/revoke', true), 'api');
+  assert.equal(target('POST', '/api/connect-admin/reservations/test/access', true), undefined);
+  assert.equal(renderShowroom(example).includes('showroom-admission'), false);
+  assert.equal(renderShowroom(example, { guestProof: true }).includes('showroom-admission'), true);
+});

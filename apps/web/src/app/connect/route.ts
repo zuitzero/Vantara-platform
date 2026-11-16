@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { configuration } from '../../../../../infra/staging/showroom-policy.cjs';
 import { startGuestShell } from './shell-script';
 
 export const dynamic = 'force-dynamic';
@@ -11,6 +12,9 @@ export function GET(request: Request) {
     'X-Frame-Options': 'DENY',
   };
   const env = process.env;
+  const showroom = configuration(env);
+  const proof = showroom?.guestProof && Reflect.get(globalThis, Symbol.for('vantara.showroom.raw-ingress'))
+    && request.headers.get('host') === showroom.host;
   const origin = env.WEB_ORIGIN ?? '';
   const localHttps = /^https:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::[0-9]+)?$/.test(origin);
   let host: string | undefined;
@@ -22,10 +26,10 @@ export function GET(request: Request) {
       // Malformed configuration leaves the route disabled.
     }
   }
-  if (!['development', 'test'].includes(env.NODE_ENV ?? '') || env.VANTARA_ENV !== 'local' ||
+  if (!proof && (!['development', 'test'].includes(env.NODE_ENV ?? '') || env.VANTARA_ENV !== 'local' ||
       env.CONNECT_GUEST_SHELL !== 'synthetic-https-only' || env.CONNECT_GUEST_HTTP !== 'synthetic-https-only' ||
       env.CONNECT_GUEST_POLICY_ACK !== 'candidate-v1-synthetic-only' ||
-      !host || request.headers.get('host') !== host) {
+      !host || request.headers.get('host') !== host)) {
     return new Response('Not found.', { status: 404, headers });
   }
   if (request.url.includes('?')) return new Response('Open the original guest link.', { status: 400, headers });
@@ -35,7 +39,7 @@ export function GET(request: Request) {
   // The only script is a self-contained function with no imports or guest data.
   return new Response(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
-<script nonce="${nonce}">(${startGuestShell.toString()})();</script>
+<script nonce="${nonce}">(${startGuestShell.toString()}) (${proof ? JSON.stringify(showroom?.origin) : ''});</script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vantara Connect</title><link rel="icon" href="data:,">
 <style nonce="${nonce}">
@@ -62,9 +66,10 @@ li { overflow-wrap: anywhere; margin: .5rem 0 }
 <button id="logout" type="button">Sign out</button>
 <form id="request">
 <h2>Make a request</h2>
-<label>Category <select name="category"><option value="FRONT_DESK">Front desk</option><option value="HOUSEKEEPING">Housekeeping</option><option value="MAINTENANCE">Maintenance</option><option value="OTHER">Other</option></select></label>
+ ${proof ? '<p>Request two fresh towels for this synthetic stay.</p>' : `<label>Category <select name="category"><option value="FRONT_DESK">Front desk</option><option value="HOUSEKEEPING">Housekeeping</option><option value="MAINTENANCE">Maintenance</option><option value="OTHER">Other</option></select></label>
 <label>Title <input name="title" required minlength="2" maxlength="120" autocomplete="off"></label>
 <label>Details <textarea name="message" required minlength="2" maxlength="1000" autocomplete="off"></textarea></label>
+`}
 <button id="send" type="submit">Send request</button>
 </form>
 <h2>Request history</h2><ul id="history"></ul>
