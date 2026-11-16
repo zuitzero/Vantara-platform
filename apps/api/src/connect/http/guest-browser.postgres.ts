@@ -482,17 +482,29 @@ export function guestBrowserTests(database: () => PrismaClient) {
         stage = 'CRM tenant scope, profile retry and durable notes';
         await call(b, `guests/${guest.id}/crm`, 404);
         await call(b, `guests/${guest.id}/crm/notes`, 404, 'POST', { body: 'A foreign note must never persist' });
+        stage = 'CRM mobile navigation';
         await a.setViewportSize({ width: 360, height: 780 });
         const crmPath = '/api/guests/' + guest.id + '/crm';
-        await a.route((url: URL) => url.pathname === crmPath, (route: any) => route.fulfill({ status: 503 }), { times: 1 });
+        const profileRoute = (url: URL) => url.pathname === crmPath;
+        // Keep the fault active through initial Strict Mode effect replays.
+        await a.route(profileRoute, (route: any) => route.fulfill({ status: 503 }));
+
         await modules.getByRole('button', { name: /CRM/ }).click();
         await a.getByRole('button', { name: /Synthetic Turnover/i }).click();
         const profile = a.locator('.crm-profile');
-        await profile.getByRole('button', { name: 'Retry profile' }).click();
+        stage = 'CRM visible profile failure';
+        const retry = profile.getByRole('button', { name: 'Retry profile' });
+        await retry.waitFor();
+        await a.unroute(profileRoute);
+        stage = 'CRM profile retry';
+        await retry.click();
+
         await profile.getByRole('heading', { name: 'Synthetic Turnover' }).waitFor();
+        stage = 'CRM edit and persist tags and preferences';
         await profile.getByLabel('Guest tags').fill('Synthetic return stay');
         await profile.getByLabel('Guest preferences').fill('arrival=quiet');
         await profile.getByRole('button', { name: 'Save guest memory' }).click();
+        stage = 'CRM add and persist note';
         await profile.getByLabel('New CRM note').fill('Synthetic arrival follow-up');
         await profile.getByRole('button', { name: 'Add note' }).click();
         await profile.getByText('Synthetic arrival follow-up', { exact: true }).waitFor();
