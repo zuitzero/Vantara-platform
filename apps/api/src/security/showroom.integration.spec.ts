@@ -37,13 +37,16 @@ function check(value: unknown, label: string): asserts value { if (!value) throw
 function call(port: number, path: string, method = 'GET', headers: OutgoingHttpHeaders = {}, body?: string) {
   return new Promise<{ status: number; headers: Record<string, string | string[] | undefined>; body: string }>((done, fail) => {
     const transport = port === gatewayPort ? httpsRequest : request;
-    const req = transport({ host: '127.0.0.1', port, ca: certificate, path, method, headers: { Host: host, ...headers } }, res => {
+    const req = transport({ host: '127.0.0.1', port, ca: certificate, servername: new URL(origin).hostname, path, method, headers: { Host: host, ...headers } }, res => {
       let text = '';
       res.setEncoding('utf8').on('data', chunk => { text += chunk; });
       res.on('end', () => done({ status: res.statusCode!, headers: res.headers, body: text }));
     });
     req.setTimeout(4000, () => req.destroy());
-    req.on('error', () => fail(new Error('SHOWROOM_HTTP_FAILED')));
+    req.on('error', (error: NodeJS.ErrnoException) => {
+      const code = typeof error.code === 'string' && /^[A-Z0-9_]+$/.test(error.code) ? error.code : 'UNKNOWN';
+      fail(new Error('SHOWROOM_HTTP_FAILED ' + code));
+    });
     req.end(body);
   });
 }
@@ -51,7 +54,7 @@ function call(port: number, path: string, method = 'GET', headers: OutgoingHttpH
 function upgrade(port: number, requestOrigin = origin, proof?: string) {
   return new Promise<number>((done, fail) => {
     const transport = port === gatewayPort ? httpsRequest : request;
-    const req = transport({ host: '127.0.0.1', port, ca: certificate, path: '/socket.io/?EIO=4&transport=websocket',
+    const req = transport({ host: '127.0.0.1', port, ca: certificate, servername: new URL(origin).hostname, path: '/socket.io/?EIO=4&transport=websocket',
       headers: {
         Host: host, Origin: requestOrigin, Upgrade: 'websocket', Connection: 'Upgrade',
         'Sec-WebSocket-Key': randomBytes(16).toString('base64'), 'Sec-WebSocket-Version': '13',
