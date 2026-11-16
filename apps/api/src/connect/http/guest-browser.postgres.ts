@@ -212,7 +212,11 @@ export function guestBrowserTests(database: () => PrismaClient) {
     }
 
     acceptance('signs in a hotel staff user on mobile, syncs persisted unread and revokes their session', async () => {
-      stage = 'staff fixture';
+      const checkpoint = (label: string) => {
+        stage = label;
+        console.info('STAFF_CHROMIUM ' + label);
+      };
+      checkpoint('staff fixture');
       const password = opaque();
       const salt = randomBytes(16).toString('hex');
       const fingerprint = createHash('sha256').update(scryptSync(password, salt, 64)).digest('hex');
@@ -222,7 +226,7 @@ export function guestBrowserTests(database: () => PrismaClient) {
       } });
       secrets.push(password);
       try {
-        stage = 'staff fixture auth and scope';
+        checkpoint('staff fixture auth and scope');
         const auth = app.get(AuthService);
         const proof = await auth.login({ email: user.email, password });
         secrets.push(proof.token);
@@ -231,12 +235,9 @@ export function guestBrowserTests(database: () => PrismaClient) {
           check(workspace.membership.role === 'HOTEL_STAFF' && workspace.tenant.id === 'cs02-a', 'FIXTURE_SCOPE');
         } finally { await auth.logout(proof.token); }
 
-        stage = 'staff GET onboarding';
+        checkpoint('staff GET onboarding');
         const { tab, context } = await page(true);
-        await context.route('**/*', (route: any) => {
-          if (new URL(route.request().url()).origin === origin) return route.continue();
-          return route.abort();
-        });
+        await context.route((url: URL) => url.origin !== origin, (route: any) => route.abort());
         const bootstrap = { scriptOk: 0, scriptDenied: 0, scriptFailed: 0, clientErrors: 0, chunkErrors: 0, sessionRequests: 0, hmrFrames: 0 };
         tab.on('response', (reply: any) => {
           if (reply.request().resourceType() !== 'script') return;
@@ -259,9 +260,9 @@ export function guestBrowserTests(database: () => PrismaClient) {
         const response = (path: string, method: string) => (res: any) =>
           res.url() === origin + path && res.request().method() === method;
         const onboardingAuth = tab.waitForResponse(response('/api/auth/me', 'GET')).catch(() => null);
-        const onboarding = await tab.goto(origin + '/onboarding');
+        const onboarding = await tab.goto(origin + '/onboarding', { waitUntil: 'domcontentloaded' });
         check(onboarding?.status() === 200, 'ONBOARDING_HTTP_' + onboarding?.status());
-        stage = 'staff onboarding anonymous auth/me';
+        checkpoint('staff onboarding anonymous auth/me');
         const anonymous = await onboardingAuth;
         if (!anonymous) {
           const boot = await tab.evaluate(() => ({
@@ -274,11 +275,11 @@ export function guestBrowserTests(database: () => PrismaClient) {
         check(anonymous.status() === 401, 'ANONYMOUS_HTTP_' + anonymous.status());
         check(bootstrap.hmrFrames > 0, 'NEXT_REACT_FLIGHT_WEBSOCKET_MISSING');
 
-        stage = 'staff email input';
+        checkpoint('staff email input');
         await tab.getByLabel('Email', { exact: true }).fill(user.email);
-        stage = 'staff password input';
+        checkpoint('staff password input');
         await tab.getByLabel('Password', { exact: true }).fill(password);
-        stage = 'staff submit and POST login';
+        checkpoint('staff submit and POST login');
         const observe = (path: string, method: string) => tab.waitForResponse(response(path, method), { timeout: 15000 }).catch(() => null);
         const login = observe('/api/auth/login', 'POST');
         const home = observe('/', 'GET');
@@ -288,33 +289,39 @@ export function guestBrowserTests(database: () => PrismaClient) {
         check(signedIn, 'LOGIN_RESPONSE_MISSING');
         check(signedIn.status() === 201, 'LOGIN_HTTP_' + signedIn.status());
 
-        stage = 'staff Set-Cookie attributes';
-        const header = await signedIn.headerValue('set-cookie') ?? '';
+        checkpoint('staff Set-Cookie attributes');
+        const header = await new Promise<string | null>((done) => {
+          const timer = setTimeout(() => done(null), 5000);
+          signedIn.headerValue('set-cookie').then((value: string | null) => {
+            clearTimeout(timer);
+            done(value);
+          }, () => { clearTimeout(timer); done(null); });
+        }) ?? '';
         check(/; HttpOnly(?:;|$)/i.test(header) && /; SameSite=Lax(?:;|$)/i.test(header) &&
           /; Path=\/(?:;|$)/i.test(header) && !/; Domain=/i.test(header), 'STAFF_COOKIE_ATTRIBUTES');
         const cookie = (await context.cookies(origin)).find((row: any) => row.name === 'vantara_session');
         if (cookie) secrets.push(cookie.value);
         check(cookie?.httpOnly && cookie.sameSite === 'Lax' && cookie.path === '/', 'STAFF_COOKIE_NOT_STORED');
 
-        stage = 'staff navigation to workspace';
+        checkpoint('staff navigation to workspace');
         const workspacePage = await home;
         check(workspacePage, 'WORKSPACE_RESPONSE_MISSING');
         check(workspacePage.status() === 200, 'WORKSPACE_HTTP_' + workspacePage.status());
-        stage = 'staff workspace auth/me';
+        checkpoint('staff workspace auth/me');
         const authenticated = await session;
         check(authenticated, 'SESSION_RESPONSE_MISSING');
         check(authenticated.status() === 200, 'SESSION_HTTP_' + authenticated.status());
         const who = await authenticated.json();
         check(who.membership.role === 'HOTEL_STAFF' && who.tenant.id === 'cs02-a', 'BROWSER_SESSION_SCOPE');
 
-        stage = 'staff Command Center render';
+        checkpoint('staff Command Center render');
         await tab.getByRole('heading', { name: /Synthetic/ }).waitFor({ timeout: 15000 });
         check(tab.url() === origin + '/', 'WORKSPACE_DESTINATION');
         const nav = tab.getByRole('navigation', { name: 'Hotel modules' });
         check(!(await nav.getByText('Billing').count()), 'STAFF_BILLING_VISIBLE');
         check(await tab.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'STAFF_MOBILE_OVERFLOW');
 
-        stage = 'persisted unread and request navigation';
+        checkpoint('persisted unread and request navigation');
         const item = await database().guestRequest.create({ data: {
           tenantId: 'cs02-a', propertyId: 'cs02-a-property', guestId: 'cs02-a-guest',
           title: 'Synthetic queue item', message: 'Example front desk handoff', category: 'FRONT_DESK',
@@ -329,7 +336,7 @@ export function guestBrowserTests(database: () => PrismaClient) {
         await tab.getByRole('button', { name: 'Notifications' }).click();
         await tab.getByText('No unread notifications.').waitFor();
 
-        stage = 'staff logout and back';
+        checkpoint('staff logout and back');
         await tab.getByRole('button', { name: 'Sign out', exact: true }).click();
         await tab.getByRole('heading', { name: 'Open your hotel workspace' }).waitFor();
         await tab.goto(origin + '/');
