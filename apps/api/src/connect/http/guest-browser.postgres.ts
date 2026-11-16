@@ -311,12 +311,21 @@ export function guestBrowserTests(database: () => PrismaClient) {
         const authenticated = await session;
         check(authenticated, 'SESSION_RESPONSE_MISSING');
         check(authenticated.status() === 200, 'SESSION_HTTP_' + authenticated.status());
-        const who = await authenticated.json();
-        check(who.membership.role === 'HOTEL_STAFF' && who.tenant.id === 'cs02-a', 'BROWSER_SESSION_SCOPE');
-
         checkpoint('staff Command Center render');
         await tab.getByRole('heading', { name: /Synthetic/ }).waitFor({ timeout: 15000 });
         check(tab.url() === origin + '/', 'WORKSPACE_DESTINATION');
+
+        // Inspect a completed request in the mounted document. An observation at
+        // response headers can belong to a fetch cancelled during document navigation.
+        checkpoint('staff authenticated role and tenant');
+        const scope = await tab.evaluate(async () => {
+          const response = await fetch('/api/auth/me', {
+            credentials: 'include', cache: 'no-store', signal: AbortSignal.timeout(5000),
+          });
+          const body = response.ok ? await response.json() : null;
+          return { status: response.status, staff: body?.membership?.role === 'HOTEL_STAFF', hotelA: body?.tenant?.id === 'cs02-a' };
+        });
+        check(scope.status === 200 && scope.staff && scope.hotelA, 'BROWSER_SESSION_SCOPE_' + scope.status);
         const nav = tab.getByRole('navigation', { name: 'Hotel modules' });
         check(!(await nav.getByText('Billing').count()), 'STAFF_BILLING_VISIBLE');
         check(await tab.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'STAFF_MOBILE_OVERFLOW');
