@@ -3,6 +3,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { GuestRequestPriority, ReservationStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RequestsService } from '../requests/requests.service';
+import { isShowroomRoot } from './persistence/guest-access.repository';
 import { coordinatedConnectWrite } from './persistence/connect-writers';
 import { CreateConnectRequestDto } from './connect.dto';
 
@@ -23,6 +24,8 @@ export class ConnectService {
     if (!reservation) throw new NotFoundException('Reservation not found.');
     if (!REQUESTABLE.includes(reservation.status)) throw new BadRequestException('Connect access requires a confirmed or checked-in reservation.');
     if (reservation.checkOut.getTime() <= Date.now()) throw new BadRequestException('This stay has already ended.');
+    const existing = await tx.guestConnectAccess.findUnique({ where: { reservationId }, select: { tokenHash: true } });
+    if (existing && isShowroomRoot(existing.tokenHash)) throw new NotFoundException('Connect access not found.');
     const token = randomBytes(32).toString('base64url');
     const expiresAt = new Date(reservation.checkOut.getTime() + 24 * 60 * 60 * 1000);
     await tx.guestConnectAccess.upsert({
@@ -37,7 +40,7 @@ export class ConnectService {
   async revoke(tenantId: string, reservationId: string) {
     return coordinatedConnectWrite(this.prisma, tenantId, reservationId, async tx => {
       const access = await tx.guestConnectAccess.findFirst({ where: { reservationId, tenantId } });
-      if (!access) throw new NotFoundException('Connect access not found.');
+      if (!access || isShowroomRoot(access.tokenHash)) throw new NotFoundException('Connect access not found.');
       await tx.guestConnectAccess.update({ where: { id: access.id }, data: { revokedAt: new Date(), generation: { increment: 1 } } });
       return { revoked: true };
     });
