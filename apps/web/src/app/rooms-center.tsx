@@ -28,6 +28,7 @@ export function RoomsCenter({ base, canManage }: { base: string; canManage: bool
   const [filter, setFilter] = useState<RoomFilter>('ALL');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
   const [updating, setUpdating] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -62,8 +63,9 @@ export function RoomsCenter({ base, canManage }: { base: string; canManage: bool
   }), [rooms]);
 
   const patchRoom = async (room: Room, kind: 'occupancy' | 'readiness', value: RoomOccupancyStatus | RoomReadinessStatus) => {
-    if (!canManage) return;
+    if (!canManage || updating) return;
     setUpdating(room.id);
+    setMutationError(null);
     try {
       const key = kind === 'occupancy' ? 'occupancyStatus' : 'readinessStatus';
       const response = await fetch(`${base}/rooms/${room.id}/${kind}`, {
@@ -72,12 +74,15 @@ export function RoomsCenter({ base, canManage }: { base: string; canManage: bool
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ [key]: value }),
       });
-      if (!response.ok) throw new Error(`Room ${kind} update failed.`);
+      if (!response.ok) {
+        const failure = await response.json().catch(() => null);
+        throw new Error(typeof failure?.message === 'string' ? failure.message : `Room ${kind} update failed.`);
+      }
       const updated = await response.json();
       setRooms((current) => current.map((item) => item.id === room.id ? { ...item, ...updated } : item));
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Room update failed.');
+      setMutationError(err instanceof Error ? err.message : 'Room update failed.');
     } finally {
       setUpdating(null);
     }
@@ -86,7 +91,7 @@ export function RoomsCenter({ base, canManage }: { base: string; canManage: bool
   return <section className="rooms-center">
     <div className="rooms-hero">
       <div><span className="panel-kicker">ROOM OPERATIONS / INVENTORY</span><h2>Rooms</h2><p>Occupancy and operational readiness are tracked independently for every room.</p></div>
-      <button className="refresh-button" onClick={() => void load()} disabled={loading}>↻ {loading ? 'Syncing' : 'Sync'}</button>
+      <button className="refresh-button" onClick={() => void load()} disabled={loading || !!updating}>↻ {loading ? 'Syncing' : 'Sync'}</button>
     </div>
 
     <div className="room-stats">
@@ -98,13 +103,13 @@ export function RoomsCenter({ base, canManage }: { base: string; canManage: bool
       <span>{visible.length} {visible.length === 1 ? 'room' : 'rooms'}</span>
     </div>
 
-    {error && <div className="request-error">⚠ {error}</div>}
-    {loading ? <div className="room-empty"><strong>Loading room inventory</strong><span>Resolving tenant-scoped room state...</span></div> : visible.length === 0 ? <div className="room-empty"><strong>No rooms in this view</strong><span>Try another occupancy or readiness filter.</span></div> : <div className="room-grid">{visible.map((room) => {
+    {mutationError && <div className="request-error" role="alert">{mutationError}</div>}
+    {loading ? <div className="room-empty"><strong>Loading room inventory</strong><span>Resolving tenant-scoped room state...</span></div> : error ? <div className="room-empty" role="alert"><strong>{error}</strong><button className="refresh-button" onClick={() => void load()}>Retry</button></div> : visible.length === 0 ? <div className="room-empty"><strong>No rooms in this view</strong><span>Try another occupancy or readiness filter.</span></div> : <div className="room-grid">{visible.map((room) => {
       const guest = room.guests?.[0] ?? room.reservations?.[0]?.guest;
       return <article className={`room-card ${room.readinessStatus.toLowerCase()} ${room.occupancyStatus.toLowerCase()}`} key={room.id}>
         <div className="room-card-head"><div><span className="room-number">{room.number}</span><span className="room-type">{room.roomType.name}</span></div><div><span className="room-status"><i />{room.occupancyStatus}</span><span className="room-status">{room.readinessStatus.replaceAll('_', ' ')}</span></div></div>
         <div className="room-card-body"><span>PROPERTY <b>{room.property.name}</b></span><span>GUEST <b>{guest ? `${guest.firstName} ${guest.lastName}` : 'None'}</b></span></div>
-        {canManage ? <div className="room-actions"><select value={room.occupancyStatus} disabled={updating === room.id} onChange={(event) => void patchRoom(room, 'occupancy', event.target.value as RoomOccupancyStatus)}>{occupancyOptions.map((status) => <option key={status} value={status}>{status}</option>)}</select><select aria-label={`Administrative lock for room ${room.number}`} value={room.outOfServiceLocked ? 'OUT_OF_SERVICE' : 'READY'} disabled={updating === room.id} onChange={(event) => void patchRoom(room, 'readiness', event.target.value as RoomReadinessStatus)}>{readinessOptions.map((status) => <option key={status} value={status}>{status === 'READY' ? 'No administrative lock' : 'Lock: OUT OF SERVICE'}</option>)}</select></div> : <div className="room-readonly">READ ONLY</div>}
+        {canManage ? <div className="room-actions"><select aria-label={`Occupancy for room ${room.number}`} value={room.occupancyStatus} disabled={!!updating} onChange={(event) => void patchRoom(room, 'occupancy', event.target.value as RoomOccupancyStatus)}>{occupancyOptions.map((status) => <option key={status} value={status}>{status}</option>)}</select><select aria-label={`Administrative lock for room ${room.number}`} value={room.outOfServiceLocked ? 'OUT_OF_SERVICE' : 'READY'} disabled={!!updating} onChange={(event) => void patchRoom(room, 'readiness', event.target.value as RoomReadinessStatus)}>{readinessOptions.map((status) => <option key={status} value={status}>{status === 'READY' ? 'No administrative lock' : 'Lock: OUT OF SERVICE'}</option>)}</select></div> : <div className="room-readonly">READ ONLY</div>}
       </article>;
     })}</div>}
   </section>;

@@ -356,6 +356,139 @@ export function guestBrowserTests(database: () => PrismaClient) {
       }
     });
 
+    acceptance('walks the real two-hotel front desk, request and room turnover lifecycle', async () => {
+      stage = 'operations fixtures';
+      const password = opaque();
+      const salt = randomBytes(16).toString('hex');
+      const fingerprint = createHash('sha256').update(scryptSync(password, salt, 64)).digest('hex');
+      const passwordHash = `scrypt:${salt}:${fingerprint}`;
+      const operationalUsers = [];
+      secrets.push(password);
+      const db = database();
+      for (const side of ['a', 'b', 'maintenance']) {
+        const user = await db.user.create({ data: {
+          name: `Synthetic operations ${side}`, email: `operations-${side}@example.invalid`, passwordHash,
+          memberships: { create: { tenantId: side === 'b' ? 'cs02-b' : 'cs02-a', role: side === 'maintenance' ? 'HOTEL_STAFF' : 'HOTEL_ADMIN' } },
+        }, include: { memberships: true } });
+        operationalUsers.push(user);
+      }
+      try {
+        const [admin, other, technician] = operationalUsers;
+        const now = Date.now();
+        await db.subscription.create({ data: {
+          tenantId: 'cs02-a', plan: 'LOBBY', status: 'TRIALING',
+          trialStartedAt: new Date(now), trialEndsAt: new Date(now + 86400000),
+        } });
+        const housekeeping = await db.operationalStaff.create({ data: {
+          tenantId: 'cs02-a', membershipId: admin.memberships[0].id, department: 'HOUSEKEEPING',
+        } });
+        const maintenance = await db.operationalStaff.create({ data: {
+          tenantId: 'cs02-a', membershipId: technician.memberships[0].id, department: 'MAINTENANCE',
+        } });
+        const left = await page(), right = await page();
+        for (const { context } of [left, right]) {
+          await context.route((url: URL) => url.origin !== origin, (route: any) => route.abort());
+        }
+        const call = async (tab: any, path: string, expected = 200, method = 'GET', data?: unknown) => {
+          const result = await tab.request.fetch(origin + '/api/' + path, {
+            method, data, timeout: 5000, headers: { Origin: origin },
+          });
+          check(result.status() === expected, 'OPERATIONS_HTTP_' + path.split('/')[0] + '_' + result.status());
+          return result.json();
+        };
+        stage = 'separate authenticated operations sessions';
+        for (const [fixture, user] of [[left, admin], [right, other]] as const) {
+          await call(fixture.tab, 'auth/login', 201, 'POST', { email: user.email, password });
+          const cookie = (await fixture.context.cookies(origin)).find((row: any) => row.name === 'vantara_session');
+          check(cookie?.httpOnly, 'OPERATIONS_COOKIE');
+          secrets.push(cookie.value);
+        }
+        const a = left.tab, b = right.tab;
+        check((await call(a, 'auth/me')).tenant.id === 'cs02-a' && (await call(b, 'auth/me')).tenant.id === 'cs02-b', 'OPERATIONS_SESSION_SCOPE');
+        await call(b, 'auth/tenant/cs02-a', 401, 'POST');
+
+        stage = 'inventory guest and reservation';
+        const room = await call(a, 'rooms/properties/cs02-a-property', 201, 'POST', { number: '502', roomTypeId: 'cs02-a-type' });
+        const guest = await call(a, 'guests', 201, 'POST', { firstName: 'Synthetic', lastName: 'Turnover', propertyId: 'cs02-a-property' });
+        await call(b, 'guests/' + guest.id, 404);
+        const stay = await call(a, 'reservations', 201, 'POST', {
+          guestId: guest.id, propertyId: 'cs02-a-property', roomTypeId: 'cs02-a-type',
+          checkIn: new Date(now - 3600000).toISOString(), checkOut: new Date(now + 86400000).toISOString(),
+        });
+        await call(b, 'reservations/' + stay.id, 404);
+        await call(b, `reservations/${stay.id}/room`, 404, 'PATCH', { roomId: 'cs02-b-room' });
+        await call(a, `reservations/${stay.id}/room`, 400, 'PATCH', { roomId: 'cs02-b-room' });
+        await call(a, `reservations/${stay.id}/room`, 200, 'PATCH', { roomId: room.id });
+        const status = (value: string, expected = 200) => call(a, `reservations/${stay.id}/status`, expected, 'PATCH', { status: value });
+        await status('CONFIRMED');
+        await call(a, `rooms/${room.id}/readiness`, 200, 'PATCH', { readinessStatus: 'OUT_OF_SERVICE' });
+        await status('CHECKED_IN', 400);
+        await call(a, `rooms/${room.id}/readiness`, 200, 'PATCH', { readinessStatus: 'READY' });
+        await status('CHECKED_IN');
+        const roomState = async () => (await call(a, 'rooms')).find((row: any) => row.id === room.id);
+        const checkedIn = await roomState();
+        check(checkedIn.occupancyStatus === 'OCCUPIED' && checkedIn.readinessStatus === 'READY', 'CHECK_IN_ROOM_STATE');
+
+        stage = 'request lifecycle and hotel isolation';
+        const request = await call(a, `requests/guests/${guest.id}`, 201, 'POST', {
+          title: 'Synthetic towels', message: 'Two towels for the test stay', category: 'HOUSEKEEPING',
+        });
+        await call(b, 'requests/' + request.id, 404);
+        await call(b, 'requests/' + request.id, 404, 'PATCH', { status: 'COMPLETED' });
+        check((await call(b, 'notifications/unread')).every((row: any) => row.metadata?.requestId !== request.id), 'OPERATIONS_NOTIFICATION_SCOPE');
+        for (const value of ['ACKNOWLEDGED', 'IN_PROGRESS', 'COMPLETED']) {
+          await call(a, 'requests/' + request.id, 200, 'PATCH', { status: value });
+        }
+        const completed = await call(a, 'requests/' + request.id);
+        const repeated = await call(a, 'requests/' + request.id, 200, 'PATCH', { status: 'COMPLETED' });
+        check(completed.completedAt && repeated.completedAt === completed.completedAt, 'COMPLETED_TIME_CHANGED');
+        await call(a, 'requests/' + request.id, 400, 'PATCH', { status: 'CREATED' });
+
+        stage = 'checkout housekeeping and maintenance';
+        await status('CHECKED_OUT');
+        const dirty = await roomState();
+        check(dirty.occupancyStatus === 'VACANT' && dirty.readinessStatus === 'CLEANING', 'CHECK_OUT_ROOM_STATE');
+        const tasks = await call(a, 'housekeeping');
+        const turnover = tasks.filter((item: any) => item.roomId === room.id && item.blocksRoom);
+        check(turnover.length === 1 && tasks.some((item: any) => item.title === 'Synthetic towels' && !item.blocksRoom), 'CHECKOUT_WORK_LINK');
+        await call(b, 'housekeeping/' + turnover[0].id, 404, 'PATCH', { status: 'COMPLETED' });
+        await call(a, 'housekeeping/' + turnover[0].id, 200, 'PATCH', { assignedStaffId: housekeeping.id });
+        for (const value of ['IN_PROGRESS', 'COMPLETED']) {
+          await call(a, 'housekeeping/' + turnover[0].id, 200, 'PATCH', { status: value });
+        }
+        check((await roomState()).readinessStatus === 'READY', 'HOUSEKEEPING_READY_STATE');
+        const repair = await call(a, 'maintenance', 201, 'POST', {
+          roomId: room.id, title: 'Synthetic repair', description: 'Verify room readiness',
+          blocksRoom: true, assignedStaffId: maintenance.id,
+        });
+        check((await roomState()).readinessStatus === 'MAINTENANCE', 'MAINTENANCE_ROOM_STATE');
+        await call(b, 'maintenance/' + repair.id, 404, 'PATCH', { status: 'RESOLVED' });
+        for (const value of ['IN_PROGRESS', 'RESOLVED']) {
+          await call(a, 'maintenance/' + repair.id, 200, 'PATCH', { status: value });
+        }
+        const ready = await roomState();
+        check(ready.readinessStatus === 'READY' && ready.occupancyStatus === 'VACANT', 'MAINTENANCE_READY_STATE');
+
+        stage = 'operations dashboard and browser navigation';
+        await a.goto(origin + '/', { waitUntil: 'domcontentloaded' });
+        await a.getByRole('heading', { name: 'Stay pipeline' }).waitFor();
+        const modules = a.getByRole('navigation', { name: 'Hotel modules' });
+        await modules.getByRole('button', { name: /Rooms/ }).click();
+        await a.getByText('502', { exact: true }).waitFor();
+        await modules.getByRole('button', { name: /Guests/ }).click();
+        await a.getByText('Synthetic Turnover', { exact: true }).waitFor();
+        await b.goto(origin + '/', { waitUntil: 'domcontentloaded' });
+        await b.getByRole('navigation', { name: 'Hotel modules' }).getByRole('button', { name: /Rooms/ }).click();
+        await b.getByText('101', { exact: true }).waitFor();
+        check(!(await b.getByText('502', { exact: true }).count()), 'OPERATIONS_BROWSER_TENANT_SCOPE');
+      } finally {
+        await db.housekeepingTask.updateMany({ where: { tenantId: 'cs02-a' }, data: { assignedStaffId: null } });
+        await db.maintenanceTicket.updateMany({ where: { tenantId: 'cs02-a' }, data: { assignedStaffId: null } });
+        await db.operationalStaff.deleteMany({ where: { membershipId: { in: operationalUsers.flatMap(user => user.memberships.map(membership => membership.id)) } } });
+        await db.user.deleteMany({ where: { id: { in: operationalUsers.map(user => user.id) } } });
+      }
+    });
+
     acceptance('cleans the fragment before fetch and enforces CSP, cookie, navigation and retry behavior on mobile', async () => {
       stage = 'mobile landing';
       const { tab, context } = await page(true);

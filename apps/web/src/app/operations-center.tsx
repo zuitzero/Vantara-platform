@@ -39,7 +39,9 @@ export function OperationsCenter({ base, mode, canManage }: { base: string; mode
   const generation = useRef(0);
   const [items, setItems] = useState<OpsItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [assignmentError, setAssignmentError] = useState(false);
+  const [mutationError, setMutationError] = useState<string | null>(null);
   const [updating, setUpdating] = useState<string | null>(null);
   const [filter, setFilter] = useState('OPEN');
 
@@ -47,20 +49,24 @@ export function OperationsCenter({ base, mode, canManage }: { base: string; mode
     const request = ++generation.current;
     setLoading(true);
     try {
-      const response = await fetch(`${base}/${mode}`, { credentials: 'include' });
-      if (!response.ok) throw new Error(`Unable to load ${mode} (${response.status}).`);
-      const data = await response.json();
-      if (!Array.isArray(data)) throw new Error('Invalid operations response.');
-      let candidates: Assignee[] = [];
-      if (canManage) {
-        const candidateResponse = await fetch(`${base}/${mode}/assignees`, { credentials: 'include', cache: 'no-store' });
-        if (!candidateResponse.ok) throw new Error('Unable to load assignment candidates.');
-        candidates = await candidateResponse.json();
-        if (!Array.isArray(candidates)) throw new Error('Invalid staff response.');
-      }
-      if (request === generation.current) { setItems(data); setAssignees(candidates); setError(null); }
+      const readList = async (path: string) => {
+        const response = await fetch(`${base}/${path}`, { credentials: 'include', cache: 'no-store' });
+        if (!response.ok) throw new Error(`Unable to load ${mode} (${response.status}).`);
+        const data = await response.json();
+        if (!Array.isArray(data)) throw new Error('Invalid operations response.');
+        return data;
+      };
+      const [work, candidates] = await Promise.allSettled([
+        readList(mode), canManage ? readList(`${mode}/assignees`) : Promise.resolve([]),
+      ]);
+      if (request !== generation.current) return;
+      setAssignmentError(candidates.status === 'rejected');
+      setAssignees(candidates.status === 'fulfilled' ? candidates.value : []);
+      if (work.status === 'rejected') throw work.reason;
+      setItems(work.value);
+      setLoadError(null);
     } catch (err) {
-      if (request === generation.current) setError(err instanceof Error ? err.message : `Unable to load ${mode}.`);
+      if (request === generation.current) setLoadError(err instanceof Error ? err.message : `Unable to load ${mode}.`);
     } finally {
       if (request === generation.current) setLoading(false);
     }
@@ -76,6 +82,7 @@ export function OperationsCenter({ base, mode, canManage }: { base: string; mode
     if (!canManage || busy.current) return;
     busy.current = true;
     setUpdating(item.id);
+    setMutationError(null);
     try {
       const response = await fetch(`${base}/${mode}/${item.id}`, {
         method: 'PATCH',
@@ -89,7 +96,7 @@ export function OperationsCenter({ base, mode, canManage }: { base: string; mode
       }
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Status update failed.');
+      setMutationError(err instanceof Error ? err.message : 'Status update failed.');
     } finally {
       busy.current = false;
       setUpdating(null);
@@ -104,10 +111,12 @@ export function OperationsCenter({ base, mode, canManage }: { base: string; mode
     <div className="requests-hero"><div><span className="panel-kicker">OPERATIONS / {title.toUpperCase()}</span><h2>{title}</h2><p>{copy}</p></div><button className="refresh-button" onClick={() => void load()} disabled={loading || !!updating}>↻ {loading ? 'Syncing' : 'Sync'}</button></div>
     <div className="request-stats"><Stat label="Open" value={String(items.filter((item) => !terminal[mode].includes(item.status)).length)} /><Stat label="Urgent" value={String(urgent)} tone={urgent ? 'danger' : ''} /><Stat label="Completed" value={String(completed)} /><Stat label="Source" value="LIVE" tone="live" /></div>
     <div className="request-toolbar"><div className="request-filters">{statuses.map((status) => <button key={status} className={filter === status ? 'selected' : ''} onClick={() => setFilter(status)}>{status.replace('_', ' ')}</button>)}</div><span className="queue-count">{visible.length} items</span></div>
-    {error && <div className="request-error" role="alert">⚠ {error} <button className="refresh-button" disabled={loading || !!updating} onClick={() => void load()}>Retry / refresh</button></div>}
-    {loading ? <div className="request-empty"><span className="loading-orb" /><strong>Loading {title.toLowerCase()}</strong><span>Reading live tenant operations...</span></div> : error ? <div className="request-empty"><strong>Operations unavailable</strong><span>Refresh to reload the operational queue.</span></div> : visible.length === 0 ? <div className="request-empty"><span className="empty-mark">✓</span><strong>No work in this view</strong><span>This operational queue is clear.</span></div> : <div className="ops-grid">{visible.map((item) => {
+    {mutationError && <div className="request-error" role="alert">{mutationError}</div>}
+    {assignmentError && !loadError && <div className="request-error" role="alert">Staff assignments are temporarily unavailable. <button className="refresh-button" disabled={loading || !!updating} onClick={() => void load()}>Retry staff lookup</button></div>}
+    {loading ? <div className="request-empty"><span className="loading-orb" /><strong>Loading {title.toLowerCase()}</strong><span>Reading live tenant operations...</span></div> : loadError ? <div className="request-empty" role="alert"><strong>{loadError}</strong><button className="refresh-button" onClick={() => void load()}>Retry</button></div> : visible.length === 0 ? <div className="request-empty"><span className="empty-mark">✓</span><strong>No work in this view</strong><span>This operational queue is clear.</span></div> : <div className="ops-grid">{visible.map((item) => {
       const next = flows[mode][item.status];
-      return <article className={`ops-card priority-${item.priority.toLowerCase()}`} key={item.id}><div className="ops-card-head"><div><span className="request-priority">{item.priority}</span><h3>{item.title}</h3></div><span className={`request-status ${item.status.toLowerCase()}`}><i /> {item.status.replace('_', ' ')}</span></div><p>{item.description ?? item.notes ?? 'No additional notes.'}</p><div className="request-meta"><span>ROOM <b>{item.room.number}</b></span><span>TYPE <b>{item.room.roomType?.name ?? 'Room'}</b></span><span>PROPERTY <b>{item.property.name}</b></span><span>ROOM BLOCK <b>{item.blocksRoom ? 'Blocking' : 'Non-blocking'}</b></span><span>ASSIGNED <b>{item.assignedStaff?.membership.user.name ?? (item.assignedTo ? `Legacy label: ${item.assignedTo}` : 'Unassigned')}</b></span></div>{canManage && !terminal[mode].includes(item.status) && <label className="ops-assignment">Assigned staff<select aria-label={`Assign ${item.title}`} value={item.assignedStaffId ?? ''} disabled={!!updating} onChange={event => void mutate(item, { assignedStaffId: event.target.value || null })}><option value="">Unassigned</option>{item.assignedStaffId && !assignees.some(staff => staff.id === item.assignedStaffId) && <option value={item.assignedStaffId} disabled>{item.assignedStaff?.membership.user.name ?? 'Previous assignee'} · unavailable</option>}{assignees.filter(staff => !staff.propertyId || staff.propertyId === item.propertyId).map(staff => <option key={staff.id} value={staff.id}>{staff.membership.user.name}</option>)}</select></label>}{canManage && !terminal[mode].includes(item.status) && <label className="ops-assignment">Room readiness<select aria-label={`Room blocking for ${item.title}`} value={String(item.blocksRoom)} disabled={!!updating} onChange={event => void mutate(item, { blocksRoom: event.target.value === 'true' })}><option value="true">Blocks room</option><option value="false">Does not block room</option></select></label>}{canManage && next && next !== 'ASSIGNED' ? <button className="advance-button ops-action" onClick={() => void mutate(item, { status: next })} disabled={!!updating}>{updating === item.id ? 'Updating...' : `Move to ${next.replace('_', ' ')}`}</button> : <span className="completed-label">{terminal[mode].includes(item.status) ? '✓ Closed' : canManage ? 'Choose staff to assign this work' : 'Read only'}</span>}</article>;
+      const eligible = assignees.filter(staff => !staff.propertyId || staff.propertyId === item.propertyId);
+      return <article className={`ops-card priority-${item.priority.toLowerCase()}`} key={item.id}><div className="ops-card-head"><div><span className="request-priority">{item.priority}</span><h3>{item.title}</h3></div><span className={`request-status ${item.status.toLowerCase()}`}><i /> {item.status.replace('_', ' ')}</span></div><p>{item.description ?? item.notes ?? 'No additional notes.'}</p><div className="request-meta"><span>ROOM <b>{item.room.number}</b></span><span>TYPE <b>{item.room.roomType?.name ?? 'Room'}</b></span><span>PROPERTY <b>{item.property.name}</b></span><span>ROOM BLOCK <b>{item.blocksRoom ? 'Blocking' : 'Non-blocking'}</b></span><span>ASSIGNED <b>{item.assignedStaff?.membership.user.name ?? (item.assignedTo ? `Legacy label: ${item.assignedTo}` : 'Unassigned')}</b></span></div>{canManage && !terminal[mode].includes(item.status) && <label className="ops-assignment">Assigned staff<select aria-label={`Assign ${item.title}`} value={item.assignedStaffId ?? ''} disabled={!!updating || assignmentError || (!eligible.length && !item.assignedStaffId)} onChange={event => void mutate(item, { assignedStaffId: event.target.value || null })}><option value="">Unassigned</option>{item.assignedStaffId && !eligible.some(staff => staff.id === item.assignedStaffId) && <option value={item.assignedStaffId} disabled>{item.assignedStaff?.membership.user.name ?? 'Previous assignee'} · unavailable</option>}{eligible.map(staff => <option key={staff.id} value={staff.id}>{staff.membership.user.name}</option>)}</select></label>}{canManage && !terminal[mode].includes(item.status) && <label className="ops-assignment">Room readiness<select aria-label={`Room blocking for ${item.title}`} value={String(item.blocksRoom)} disabled={!!updating} onChange={event => void mutate(item, { blocksRoom: event.target.value === 'true' })}><option value="true">Blocks room</option><option value="false">Does not block room</option></select></label>}{canManage && next && next !== 'ASSIGNED' ? <button className="advance-button ops-action" onClick={() => void mutate(item, { status: next })} disabled={!!updating}>{updating === item.id ? 'Updating...' : `Move to ${next.replace('_', ' ')}`}</button> : <span className="completed-label">{terminal[mode].includes(item.status) ? '✓ Closed' : canManage ? eligible.length ? 'Choose staff to assign this work' : 'No eligible staff for this property' : 'Read only'}</span>}</article>;
     })}</div>}
   </section>;
 }

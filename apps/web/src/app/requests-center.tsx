@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 type RequestItem = {
   id: string;
@@ -27,40 +27,48 @@ export function RequestsCenter({ focusedRequestId, onFocusConsumed }: { focusedR
   const [requests, setRequests] = useState<RequestItem[]>([]);
   const [filter, setFilter] = useState<(typeof statuses)[number]>('OPEN');
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
+  const generation = useRef(0);
+  const busy = useRef(false);
   const [updating, setUpdating] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const base = process.env.NEXT_PUBLIC_API_URL ?? '/api';
+    const request = ++generation.current;
     setLoading(true);
     try {
       const response = await fetch(`${base}/requests`, { credentials: 'include' });
       if (!response.ok) throw new Error(`Unable to load requests (${response.status}).`);
       const data = await response.json();
-      setRequests(Array.isArray(data) ? data : []);
-      setError(null);
+      if (!Array.isArray(data)) throw new Error('Invalid request queue response.');
+      if (request === generation.current) { setRequests(data); setLoadError(null); }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to load requests.');
+      if (request === generation.current) setLoadError(err instanceof Error ? err.message : 'Unable to load requests.');
     } finally {
-      setLoading(false);
+      if (request === generation.current) setLoading(false);
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
-  useEffect(() => { if (focusedRequestId) { setFilter('ALL'); void load(); } }, [focusedRequestId, load]);
   useEffect(() => {
-    if (!focusedRequestId || loading) return;
+    if (focusedRequestId) setFilter('ALL');
+    void load();
+    return () => { generation.current++; };
+  }, [focusedRequestId, load]);
+  useEffect(() => {
+    if (!focusedRequestId || loading || loadError) return;
     const target = document.getElementById(`request-${focusedRequestId}`);
     if (target) { target.scrollIntoView({ behavior: 'smooth', block: 'center' }); target.focus(); }
     onFocusConsumed?.();
-  }, [focusedRequestId, loading, requests, onFocusConsumed]);
+  }, [focusedRequestId, loading, loadError, requests, onFocusConsumed]);
 
   const updateStatus = async (request: RequestItem) => {
-    if (updating) return;
-    setError(null);
+    if (busy.current) return;
+    setMutationError(null);
     const status = nextStatus[request.status];
     if (!status) return;
     const base = process.env.NEXT_PUBLIC_API_URL ?? '/api';
+    busy.current = true;
     setUpdating(request.id);
     try {
       const response = await fetch(`${base}/requests/${request.id}`, {
@@ -73,11 +81,11 @@ export function RequestsCenter({ focusedRequestId, onFocusConsumed }: { focusedR
         const errorBody = await response.json().catch(() => null);
         throw new Error(typeof errorBody?.message === 'string' ? errorBody.message : `Status update failed (${response.status}).`);
       }
-      const updated = await response.json();
-      setRequests((current) => current.map((item) => item.id === request.id ? updated : item));
+      await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Status update failed.');
+      setMutationError(err instanceof Error ? err.message : 'Status update failed.');
     } finally {
+      busy.current = false;
       setUpdating(null);
     }
   };
@@ -101,7 +109,7 @@ export function RequestsCenter({ focusedRequestId, onFocusConsumed }: { focusedR
         <Stat label="Open" value={String(open)} />
         <Stat label="Urgent" value={String(urgent)} tone={urgent ? 'danger' : ''} />
         <Stat label="Total" value={String(requests.length)} />
-        <Stat label="Realtime" value="LIVE" tone="live" />
+
       </div>
 
       <div className="request-toolbar">
@@ -113,9 +121,11 @@ export function RequestsCenter({ focusedRequestId, onFocusConsumed }: { focusedR
         <span className="queue-count">{visible.length} {visible.length === 1 ? 'request' : 'requests'}</span>
       </div>
 
-      {error && <div className="request-error">⚠ {error}</div>}
+      {mutationError && <div className="request-error" role="alert">{mutationError} <button className="refresh-button" onClick={() => void load()}>Refresh queue</button></div>}
       {loading ? (
         <div className="request-empty"><span className="loading-orb" /><strong>Loading operational queue</strong><span>Connecting to Vantara source of truth...</span></div>
+      ) : loadError ? (
+        <div className="request-empty" role="alert"><strong>{loadError}</strong><button className="refresh-button" onClick={() => void load()}>Retry</button></div>
       ) : visible.length === 0 ? (
         <div className="request-empty"><span className="empty-mark">✓</span><strong>No requests in this view</strong><span>The queue is clear for this status filter.</span></div>
       ) : (

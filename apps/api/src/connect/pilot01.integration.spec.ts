@@ -81,6 +81,7 @@ integration('Pilot 01 real PostgreSQL / HTTP regression', () => {
     check(denied.status === 400, 'CLIENT_TENANT_ACCEPTED');
     const request = await api(`connect/${token}/requests`, 'POST', { title: 'DEMO towels', message: 'Two synthetic towels', category: 'HOUSEKEEPING' });
     check(request.status === 201 && request.body.tenantId === ids('a').tenant && request.body.reservationId === reservationA, 'CONNECT_REQUEST_FAILED');
+    check(!('guest' in request.body) && !('room' in request.body) && !('property' in request.body), 'CONNECT_EXPOSED_INTERNAL_RECORD');
     const requestId = request.body.id;
     const notifications = await api('notifications/unread', 'GET', undefined, cookieA);
     check(notifications.status === 200 && notifications.body.some((row: any) => row.type === 'guest_request.created' && row.metadata.requestId === requestId), 'HOTEL_NOTIFICATION_MISSING');
