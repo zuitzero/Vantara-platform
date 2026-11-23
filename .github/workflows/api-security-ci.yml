@@ -143,6 +143,7 @@ jobs:
           PGPASSWORD: vantara
           DATABASE_URL: postgresql://vantara:vantara@127.0.0.1:5432/vantara_showroom?schema=public
           NGINX_BIN: /usr/sbin/nginx
+          SHOWROOM_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
         run: |
           createdb vantara_showroom
           SHOWROOM_PLAYWRIGHT="$RUNNER_TEMP/connect-browser/node_modules/playwright" node apps/api/scripts/showroom-ci.cjs
