@@ -39,11 +39,14 @@ test('sink leakage and response reflection fail with no raw output', async () =>
   const adapter = fixture(); const send = adapter.send;
   adapter.send = async (row, value) => { secret = value; return send(row, value); };
   adapter.readSink = async () => ({ complete: true, observedCases: matrix().cases.map(x => x.id), bytes: 'SYNTHETIC_SAFE_CONTROL ' + secret });
-  assert.deepEqual(await collect(adapter), { id: 'HTTP_GATE', status: 'FAIL' });
-  assert.deepEqual(await collect(fixture({ send: async (row, value) => ({ status: row.statuses[0], body: value }) })), { id: 'HTTP_GATE', status: 'FAIL' });
+  assert.equal((await collect(adapter)).status, 'FAIL');
+  assert.equal((await collect(fixture({ send: async (row, value) => ({ status: row.statuses[0], body: value }) }))).status, 'FAIL');
 });
 test('encoded leakage is detected; adapter exceptions cannot escape', async () => {
   const value = matrix().value;
   for (const bytes of [value, Buffer.from(value).toString('base64'), [...value].map(c => '%' + c.charCodeAt(0).toString(16)).join('')]) assert.equal(contains(bytes, [value]), true);
-  assert.deepEqual(await collect(fixture({ send: async () => { throw new Error(value); } })), { id: 'HTTP_GATE', status: 'FAIL' });
+  assert.equal(contains('%53' + value.slice(1), [value]), true);
+  assert.equal(contains('%2553' + value.slice(1), [value]), true);
+  const failure = await collect(fixture({ send: async () => { throw new Error(value); } }));
+  assert.equal(failure.status, 'FAIL'); assert.equal(JSON.stringify(failure).includes(value), false);
 });

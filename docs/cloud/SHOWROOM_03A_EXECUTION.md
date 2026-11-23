@@ -1,0 +1,106 @@
+# SHOWROOM-03A · executable gates and integrated handoff
+
+Scope: [#71](https://github.com/zuitzero/Vantara-platform/issues/71), [master #64](https://github.com/zuitzero/Vantara-platform/issues/64), [#59](https://github.com/zuitzero/Vantara-platform/issues/59), [#62](https://github.com/zuitzero/Vantara-platform/issues/62). Baseline main is **`8c21e8b1ed8d617cd2541de8e1afcc995b0e29e6`**. No application schema migration, provider selection, account, public deployment, merge, real data or Pilot access is part of this package. **Hosted candidate remains NO-GO while provider/MFA gates are BLOCKED.**
+
+Read with [CLOUD_FOUNDATION_PROOF](CLOUD_FOUNDATION_PROOF.md), [CLOUD-05A](CLOUD_05A_SHOWROOM_BOUNDARY.md), [architecture and capabilities](CLOUD_04_SHOWROOM_DESIGN.md), [provider evidence](CLOUD_03B_EVIDENCE.md), [provider budget](CLOUD_04_SHOWROOM_PROVIDERS.md), [activation/recovery](CLOUD_01_ACTIVATION_AND_GATES.md), [HTTP](../security/CONNECT_SEC_03_HTTP.md) and [browser](../security/CONNECT_SEC_04_BROWSER.md). The [Mac mini runbook](../PILOT_01_MAC_MINI.md) remains a separate manual rehearsal.
+
+## Executable evidence
+
+Reviewed cuts (all open, no merge):
+
+| PR | Exact base → head | Observed CI |
+| --- | --- | --- |
+| [#72](https://github.com/zuitzero/Vantara-platform/pull/72) | `8c21e8b1ed8d617cd2541de8e1afcc995b0e29e6` → `f269e14d2c4b3d817ede067fd7185a8ca3db028d` | [API](https://github.com/zuitzero/Vantara-platform/actions/runs/45237154840), [Web](https://github.com/zuitzero/Vantara-platform/actions/runs/45237153985), [staging](https://github.com/zuitzero/Vantara-platform/actions/runs/45237153881), [TLS](https://github.com/zuitzero/Vantara-platform/actions/runs/45237153891): PASS |
+| [#73](https://github.com/zuitzero/Vantara-platform/pull/73) | `f269e14d2c4b3d817ede067fd7185a8ca3db028d` → `2ecda9d6f4ad74c0b86b7e66a0b83524f41bf33a` | [API + restore](https://github.com/zuitzero/Vantara-platform/actions/runs/45240580687), [Web](https://github.com/zuitzero/Vantara-platform/actions/runs/45240580564), [staging](https://github.com/zuitzero/Vantara-platform/actions/runs/45240580561), [TLS + candidate](https://github.com/zuitzero/Vantara-platform/actions/runs/45240580495): PASS |
+
+At both observed cuts: API **579 PASS**, Connect **44 PASS**, Pilot01 disposable **34 PASS**, Showroom **8 PASS**, Web **4 PASS**, staging **8 PASS**, API/Web builds and fresh migrations **PASS**. The ordinary API run skips 65 database-dependent tests; the separate disposable suites execute them (44 Connect + 34 Pilot include additional integration coverage). No skipped test is counted as passed. #72 adds **8 TLS cases + 6 collector tests**; #73 adds **8 restore cases + 12 operator/operations tests**. REC08 at #73 measured **1068 ms**, fenced synthetic RPO **0 ms**. This fixture is tiny and has no concurrent writes.
+
+The final acceptance cut adds the real loopback receiver test (19 offline proof tests in total), safer failure labels, mixed-encoding leakage checks, explicit SHA checkouts and this runbook. Its exact head and complete final rerun are recorded in its PR and integrated handoff, avoiding a self-referential commit hash in this file. Prior-cut results do not substitute for that final rerun. Local Windows package-manager/Prisma generation was impeded by sandbox links, an incompatible installed pnpm major and binary-download DNS; Linux CI is the observed build/database evidence. No local DB was opened.
+
+| Cases | Runner | What is measured |
+| --- | --- | --- |
+| HTTP01–13, HTTP14 | `node --test infra/staging/proof/canary*.test.cjs` | Canonical health, legacy path/query, mixed/double encoding, malformed path/body, invitation JSON, request/authorization/cookie/referrer/user-agent headers, 404, 429, default Host, authorized sensitive response body + Set-Cookie. Real HTTP loopback fixture plus negative collector tests. Seven local sinks: access/error/security/rate-limit/platform/export/support. |
+| TLS01–08 | `node apps/api/scripts/prisma-tls-proof.cjs` in Linux GitHub Actions | Native Prisma **6.19.3**, engine **`c2990dca591cba766e3b7ef5d9e8a84796e47ab7`**. Trusted CA + SAN success with `pg_stat_ssl`; wrong CA, wrong SAN, expired CA, expired leaf fail; old trust fails on reconnect after rotation, new CA succeeds; separate plaintext-only PostgreSQL fails. |
+| REC01–08 | `showroom-ci.cjs` invokes `showroom-recovery-proof.cjs` after shutting down test listeners | Separate SELECT-only backup and isolated recovery owners; actual `pg_dump` → AES-256-GCM memory envelope → `pg_restore` to a NEW DB. All model records and migration ledger match. Recovered staff/guest/invite authority invalidated; fresh issue/exchange/replay/revoke tested with the real repository. Source fingerprint unchanged. Elapsed time measured. |
+| OP01–07 | `node --test infra/staging/proof/operator-candidate.test.cjs` | Separately gated synthetic operator admission candidate; signed MFA, verified recipient, tenant, role, challenge/session binding, freshness, invitation replay/expiry/revoke, membership change and disconnect denial. |
+| GATE01–03, OPS01–02 | `node --test infra/staging/proof/operations.test.cjs` | Evidence completeness and exact revision; local evidence cannot satisfy provider acceptance; replica/surge/writer checks; 50/75/90% spend, day-30 stop, stale backup/cert/health alerts; ordered recovery/rollback review. |
+
+The canary collector stops **before sending** if pre-persistence omission is absent. Missing/inaccessible sinks, absent safe controls, missing case coverage, unexpected statuses, response reflection or raw/encoded/base64 leakage fail closed. Outward diagnostics contain only case IDs/statuses. Random values, certificates, dump data, cookies, URLs, passwords, native errors and response payloads are not CI artifacts. The authorized sensitive response is deliberately inspected in memory. Fixture support/export/platform streams are local views owned by the fixture; they do **not** establish vendor internals. No provider adapter or arbitrary remote URL switch is shipped.
+
+The native TLS harness accepts no caller-provided endpoint. It creates random-named disposable PostgreSQL 18 containers on **127.0.0.1 only**, uses generated short-lived CA/leaf certificates and explicit `sslmode=require&sslaccept=strict&sslcert=...`, and removes containers/volumes and certificates in `finally`. The emitted CA digest fingerprints mounted PEM bytes. The plaintext negative uses a distinct endpoint, since `ALTER SYSTEM` cannot override `postgres -c ssl=on`. No unsupported `verify-full` or insecure trust fallback is used.
+
+Recovery refuses a non-CI/non-Linux target, wrong source name/marker, nonloopback URL, non-service-container identity or an existing recovery DB. It never restores over the source or deletes its schema. Generated backup/recovery roles exist only in the throwaway service. The recovery DB has a distinct name/marker, no PUBLIC connection and fails the application's startup verifier; no app listener is started against it. The memory-only encryption key is erased after the exercise. This is **not cloud storage, KMS, PITR, retention, key escrow or production-volume recovery proof**. Source writes are fenced during export: synthetic measured RPO is zero for that fixture only. RPO ≤15 min / RTO ≤4 h remain proposed hosted targets.
+
+## Architecture and activation boundary
+
+Current executable topology:
+
+```text
+Chromium / synthetic clients
+  -> loopback Nginx HTTPS/WSS, reserved *.example.invalid
+     -> loopback private Next
+     -> loopback private Nest, one process
+        -> disposable PostgreSQL, distinct runtime/migrator/fixture roles
+Separate TLS job: native Linux Prisma -> loopback PostgreSQL TLS fixtures
+After listeners stop: source -> backup identity -> encrypted memory -> NEW recovery DB
+```
+
+`/`, `/onboarding`, `/connect` and approved assets reach Next. Exact reviewed `/api/*` methods reach Nest with the prefix intact; `/socket.io/?EIO=4&transport=websocket` reaches the same Nest instance and `/realtime` namespace. Staff/guest authorization remains server-derived. Unknown/legacy/query/encoded/default-host requests deny; no token-bearing redirect is added. Existing strict ingress key, Origin, CSRF, cookies, guest quotas, one-use exchange and A/B isolation are retained. The declared replica count remains a prerequisite, **not an actual provider guarantee**.
+
+Safe future activation design, **not implemented or authorized by a flag**:
+
+1. Independent founder approval must bind account, provider/plan/region, synthetic-only resource IDs, 30-day cap, named primary/backup, DNS/certificate scope, source/config SHA, expiry and approved tests. A second security review binds the first HTTP receiver and all diagnostic/support sinks. Record only approval/evidence digests in the public manifest.
+2. A separate reviewed provider adapter/release entrypoint must verify this environment and public hostname, private DNS resolutions, mounted CA/SAN, private ingress identity and singleton enforcement. It must reject missing/stale/mismatched evidence before listening. Do not change the reserved-host regex, reuse `disposable-proof` with public hosts or depend on forwarding headers as identity.
+3. Build immutable matching Web/API/gateway artifacts from the reviewed SHA. Only the API receives DML credentials; migration and backup jobs have distinct identities. No Pilot URL, production records, signup, billing, AI credentials or public origin/DB endpoints. Gateways must not share authenticated responses in caches.
+4. First prove transport, privacy, recovery and MFA in an access-restricted synthetic environment. Founder authorization to run provider proof is distinct from authorization to admit a prospect or deploy publicly. Missing mandatory evidence blocks that track; other disposable tests can continue.
+
+`operations.cjs` validates a report envelope; artifact hashes are **not signatures, provenance or founder approval**. A reviewer must inspect actual approved evidence. It contains no deployment/ingress-opening action. Local PASS rows cannot be relabeled as provider PASS. Actual singleton proof needs desired/min/max/running=1, pending=0, no autoscaling/surge, exclusive writer enforcement, and observed denial of a second writer during restart/release. A snapshot boolean alone cannot establish that guarantee.
+
+## Minimum-permission operator candidate
+
+`operator-candidate.cjs` is an offline, bounded, in-memory candidate selected only by `synthetic-candidate` plus the synthetic marker and an Ed25519 public key. It has no HTTP route, production session/membership writes, account creation, shared password or integration with the existing login. It cannot expand application authority.
+
+A server session resolver supplies the existing individually verified HOTEL_STAFF identity and HOTEL tenant. A configured issuer needs the **separate proposed** `showroom.operator.invite` permission; it is not added to any current app role. Issuance binds a five-minute hash-only invitation to one existing `.invalid` recipient, tenant and fixed role. Each operation uses a 60-second signed MFA challenge bound to action, current session, user, tenant, issuer, audience and auth time. Challenges are consumed even on failure. Accept atomically consumes the candidate invitation and yields only a 15-minute candidate `connect.showroom.invite` grant. Revoke, disconnect, role/tenant change, timeout or restart remove access. Guests/prospects never receive staff grants. Returning a code is sensitive private delivery, not a public URL or audit field.
+
+**BLOCKED for real operator admission:** select and review the actual MFA integration, key trust/rotation, identity verification/recovery, durable transactional invitation storage/audit, session-wide revocation, rate limiting and backup exclusion. Synthetic `amr=mfa` and its test signer are not an identity provider. No header assertion, shared TOTP secret, SQL staff creation or password-only fallback is authorized. Founder chooses reviewed WebAuthn/passkey or an approved MFA identity provider and recovery owner before a live adapter is built. This candidate is not loaded by Next/Nest.
+
+## Actual-provider test matrix (all provider execution NOT RUN)
+
+These procedures require a new explicit authorization. They are not commands to run against any current account. Use a private ephemeral runner in the approved network and a separately authorized external vantage point; record case ID, date, exact source/config, architecture, sanitized result and evidence digest. Never upload raw HAR, logs, SQL errors or canary values.
+
+| ID | Procedure and measurable acceptance | Current disposition |
+| --- | --- | --- |
+| PROVIDER01_FIRST_HTTP | Inventory every HTTP decryption/logging hop; obtain plan/region-specific pre-persistence omission evidence covering approved/rejected/malformed/default-domain/404/429/error/response cases and support/export/security sinks **before sending** synthetic canaries. Authorized adapter must run HTTP01–13 and scan complete sinks with safe controls. Any capture stops that provider track. | BLOCKED: no approved provider/attestation; NOT RUN |
+| PROVIDER02_PRIVATE_PRISMA_TLS | Reproduce TLS01–08 with the same pinned Linux engine/image and disposable server fixtures inside the approved network. Then query the actual private DB DNS endpoint with the mounted supported CA and correct SAN; verify negotiated TLS and DML role. Wrong trust/SAN/expired fixture and plaintext must fail independently. Rotate CA/leaf, force pool reconnect, prove old-only trust denies/new trust succeeds. Retain CA PEM digest, engine/image digest, exact URL parameter names, outcomes; no URL/password. Never alter the provider DB cert or DNS as a shortcut. | BLOCKED until private endpoint/cert approval; NOT RUN |
+| PROVIDER03_PRIVATE_ORIGINS_DB | External runner attempts TCP against every provider default/public origin for Web:3000, Nest:3001, DB:5432, alternate domains and assigned IPs; all must be unreachable (a connection followed by 403 is insufficient). Corroborate with actual network/IAM rules and DNS inventory. From approved gateway prove correct proof works; absent/wrong proof and spoofed forwarded headers deny. DB allows only runtime/release/backup peers, denies public CIDRs. | BLOCKED; NOT RUN |
+| PROVIDER04_TLS_WSS_RECONNECT | Valid gateway chain/SAN, renewal and expiry alarm; actual HTTPS staff/guest cookies, namespace WSS 101, network disconnect/reconnect, stale session denial and persisted notification fallback. Use separate staff/guest contexts. | NOT RUN |
+| PROVIDER05_SINGLE_REPLICA | Inspect runtime, scheduler and release policy; no rolling surge, parallel listener, autoscale or second writer. Attempt a controlled second writer and observe failure, then restart/drain/reconnect. If platform cannot enforce singleton, stop or review shared-state architecture. | BLOCKED; NOT RUN |
+| PROVIDER06_OPERATOR_MFA | Actual individually verified operator, approved MFA and recipient-bound one-use invite; bad MFA, cross-tenant/admin/guest, stale identity, expiry/replay/recovery/revoke deny. Demonstrate no shared account or unreviewed extra grant. | BLOCKED; NOT RUN |
+| PROVIDER07_CSRF_REPLAY_LIMITS | Repeat existing real gateway CSRF/Origin/duplicate-cookie/replay/expiry/reissue/A-B tests and login/guest/tenant quota, body/connection limits under bounded approved load. Test hotel NAT fairness and spoofed source headers. | NOT RUN |
+| PROVIDER08_RESTORE_REISSUE | Encrypted managed backup + distinct backup/restore identities/keys; restore to NEW isolated target; verify integrity, measured data loss/time, invalidate every recovered staff/guest/invite/legacy capability before admission, then fresh MFA issue/revoke. Reject source reset. | NOT RUN |
+| PROVIDER09_ALERT_ROLLBACK | Inject sanitized app/DB/WSS/probe/backup/cert/replica failures; observe actual primary notification and escalation after 15 min without ack. Fence writes, drain sockets, restore prior compatible paired artifacts/config, verify tenant/request/notification flow, reconcile missing delivery. No blind reverse DDL. | NOT RUN |
+| PROVIDER10_RETENTION_SUPPORT | Confirm stored-field minimization and retention/deletion across replicas, exports, support and backup expiry. Proposed diagnostic metadata 7 days, encrypted backups 30 days, PITR ≥7 days; obtain actual plan/contract limits and deletion evidence. | BLOCKED; NOT RUN |
+| DEVICE01_LAPTOP_PHONE | Founder laptop + independent physical phone: controlled QR confirmation, preset towels, persisted staff notification/request, status update, guest refresh/history, B denial, expired/replayed/revoked invitations. | NOT RUN |
+| DEVICE02_WIFI_CELLULAR | Mobile Safari/Chrome on Wi-Fi and cellular, native QR scan, clean URL/history, TLS/cookies, reconnect/outage/NAT and recipient-controlled delivery. | NOT RUN |
+
+The TLS provider adapter requires a separate reviewed change; the disposable script intentionally has no endpoint override. No vendor messages, account lookups or network probes were sent. An owned first TLS receiver behind TCP passthrough remains a design candidate; managed HTTP edges require independent pre-persistence proof. No provider is selected here.
+
+## Resource limits, cost planning and operations
+
+Disposable CI: one TLS job, at most two PostgreSQL fixture containers simultaneously, one connection/client; one API regression job/service container with fresh named databases, no public binding. Jobs time out at 15 minutes; command operations at 120 seconds; dump buffer ≤32 MiB. A failed or cancelled job's ephemeral runner destroys its resources. No cloud backup or paid resource is created.
+
+For a future approved 30-day evaluation, propose one gateway/Web/API process, one DB, two synthetic tenants, one meeting at a time, one guest device/generation, five runtime DB connections plus a separately budgeted release/backup reserve, ≤50 demonstrations and ≤50 GB egress. Allow one temporary recovery target during the drill. Treat overflow as stop/review, not permission to scale. Keep one-replica limitations and post-commit notification best-effort behavior explicit.
+
+First-party planning refresh **2026-11-23**, no account/quote/purchase: [Railway plans](https://docs.railway.com/pricing/plans) list Pro $20/month, container RAM $10/GB-month, CPU $20/vCPU-month, volume $0.15/GB-month and egress $0.05/GB. Pro includes $20 usage; do not add that credit twice. A 4-GB / 0.5-average-vCPU / 20-GB / 50-GB container allocation is $55.50 metered, before external recovery/observability/domain/support/tax allowances. [AWS Fargate](https://aws.amazon.com/fargate/pricing/) retains the Virginia example CPU-second/GB-second rates used in the earlier model; DB, NLB, NAT, IP, DNS, storage, observability and recovery are additional. [Render pricing](https://render.com/pricing) was fetched but did not expose numeric plan values in its rendered text, so prior Render numbers are **not reverified**. Preserve the full [prior cost model and exclusions](CLOUD_04_SHOWROOM_PROVIDERS.md); no price resolves a security blocker.
+
+Prior proposed ceilings remain planning inputs only: managed evaluation **$200/30 days**, AWS **$300/30 days**, plus explicit review of taxes/FX, MFA/support/operator labor and excluded commitments. Founder must approve an actual all-in quote or stop. Configure actual provider billing alerts at 50/75/90%, cost owner acknowledgment, admission stop/review at the cap or day 30, and independent egress/resource quotas. Alerts can lag and are not hard billing caps. `operations.cjs` tests these thresholds locally; no external alerts or automation were configured.
+
+## Rollback and founder decisions
+
+Current code rollback: stop only the disposable proof job; reverse unmerged cuts in order #73 then #72 if rejected, with no changes to the known Pilot environment. No migration rollback is necessary. Preserve ordinary entrypoints and all existing database revocations. The acceptance cut only adds evidence/proof tests and exact-checkout workflow settings.
+
+Future approved incident rollback: close admission and fence writes; drain staff WSS; isolate NEW restore target; verify contents and revoke all recovered authority; restore compatible **paired Web/API/gateway/config** artifacts; prove A/B scope, staff/guest expiry, reissue and notification persistence; acknowledge real alerts; request separate review before opening ingress. Forward-fix incompatible schema changes instead of resetting data. `RecoveryGate` enforces this review order and never opens ingress.
+
+Founder decisions required before provider work: named provider/account/region, privacy/support and release/recovery primary+backup, architecture and exact first-receiver boundary, independent certificate/DNS and resource authorization, quote and 30-day cap, MFA/recipient verification/recovery integration, scope and expiry of synthetic provider canaries, retention/key recovery policy, and a separate deployment/device rehearsal approval. Public deployment, prospects, real hotel enrollment, Stripe/AI live and real personal data remain unauthorized.
+
+See the PR manifests for exact heads and observed test runs. A complete engineering package does not imply successful provider proof or permission to start Batch 3B.
