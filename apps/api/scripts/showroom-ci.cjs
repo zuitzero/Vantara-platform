@@ -86,6 +86,7 @@ async function main() {
         SHOWROOM_CI_FIXTURE_DB: withRole(url, fixture, passwords.get(fixture)) }, stdio: 'inherit',
     });
     if (result.error || result.status !== 0) throw new Error('CI_TEST_FAILED');
+    await require('./showroom-recovery-proof.cjs').rehearse(url.toString());
   } finally {
     await admin.$disconnect();
   }
