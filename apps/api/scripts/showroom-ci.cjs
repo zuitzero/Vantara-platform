@@ -93,7 +93,7 @@ async function main() {
 }
 
 void main().catch(error => {
-  const code = ['CI_TARGET_REJECTED', 'CI_TARGET_NOT_EMPTY', 'CI_MIGRATOR_FAILED', 'CI_TEST_FAILED'].includes(error?.message) ? error.message : 'CI_SETUP_FAILED';
+  const code = ['CI_TARGET_REJECTED', 'CI_TARGET_NOT_EMPTY', 'CI_MIGRATOR_FAILED', 'CI_TEST_FAILED'].includes(error?.message) || /^RECOVERY_[A-Z_]+$/.test(error?.message ?? '') ? error.message : 'CI_SETUP_FAILED';
   console.error('SHOWROOM_CI_FAILED ' + code);
   process.exitCode = 1;
 });

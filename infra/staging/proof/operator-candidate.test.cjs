@@ -34,6 +34,11 @@ test('OP02 named MFA issuer invites verified existing recipient; only dedicated 
   const result = await f.candidate.accept('recipient', await f.proof('recipient', 'accept'), invitation.code);
   assert.equal(result.permission, 'connect.showroom.invite'); assert.equal(result.role, 'HOTEL_STAFF');
   assert.equal(await f.candidate.authorized('recipient'), true);
+  f.actors.set('second-session', { ...f.actors.get('recipient') });
+  assert.equal(await f.candidate.authorized('second-session'), false);
+  f.actors.get('recipient').email = 'changed@operator.example.invalid';
+  assert.equal(await f.candidate.authorized('recipient'), false);
+  f.actors.get('recipient').email = 'recipient@operator.example.invalid';
   assert.equal(await f.candidate.authorized('foreign'), false);
   f.candidate.close(); assert.equal(await f.candidate.authorized('recipient'), false);
 });

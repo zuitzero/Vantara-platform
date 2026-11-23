@@ -25,6 +25,9 @@ function matrix() {
 }
 function contains(bytes, values) {
   const text = Buffer.isBuffer(bytes) ? bytes.toString('utf8') : String(bytes);
+  let decoded = text;
+  for (let i = 0; i < 3; i++) decoded = decoded.replace(/%([a-f0-9]{2})/gi, (_, pair) => String.fromCharCode(parseInt(pair, 16)));
+  if (values.some(value => decoded.includes(value))) return true;
   return values.some(value => [value, encodeURIComponent(value), Buffer.from(value).toString('base64'),
     Buffer.from(value).toString('base64url'), [...value].map(c => '%' + c.charCodeAt(0).toString(16)).join('')]
     .some(variant => text.toLowerCase().includes(variant.toLowerCase())));
@@ -34,10 +37,12 @@ async function collect(adapter) {
   if (adapter?.boundary !== 'disposable-loopback-first-receiver') return { id: 'HTTP_GATE', status: 'BLOCKED' };
   const { value, cases } = matrix();
   const rows = [];
+  let failedCase = 'PREFLIGHT';
   try {
     // This preflight MUST precede sending any value, even a synthetic one.
     if (await adapter.prePersistenceOmission() !== true) return { id: 'HTTP_GATE', status: 'BLOCKED' };
     for (const test of cases) {
+      failedCase = test.id;
       const result = await adapter.send(test, value);
       if (!test.statuses.includes(result.status)) throw new Error();
       if (test.id === 'HTTP13_RESPONSE') {
@@ -46,6 +51,7 @@ async function collect(adapter) {
       rows.push({ id: test.id, status: 'PASS' });
     }
     for (const sink of sinks) {
+      failedCase = 'SINK_' + sink.toUpperCase().replace('-', '_');
       const result = await adapter.readSink(sink);
       // Empty or inaccessible exports are not evidence. Include a safe positive control.
       if (result?.complete !== true || !Array.isArray(result.observedCases) ||
@@ -54,6 +60,6 @@ async function collect(adapter) {
     }
     return { id: 'HTTP_GATE', status: 'PASS', scope: 'disposable', rows,
       provider: { status: 'BLOCKED', reason: 'INDEPENDENT_PROVIDER_EVIDENCE_REQUIRED' } };
-  } catch { return { id: 'HTTP_GATE', status: 'FAIL' }; }
+  } catch { return { id: 'HTTP_GATE', status: 'FAIL', failedCase }; }
 }
 module.exports = { matrix, contains, collect, sinks };
