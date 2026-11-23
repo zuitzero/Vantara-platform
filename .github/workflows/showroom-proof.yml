@@ -1,0 +1,26 @@
+name: Showroom executable provider gates
+on:
+  pull_request:
+    paths: ['infra/staging/**', 'apps/api/**', '.github/workflows/showroom-proof.yml', 'pnpm-lock.yaml']
+  push:
+    branches: [main]
+    paths: ['infra/staging/**', 'apps/api/**', '.github/workflows/showroom-proof.yml', 'pnpm-lock.yaml']
+permissions:
+  contents: read
+jobs:
+  prisma-linux-tls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @vantara/api exec prisma generate
+      - run: sudo apt-get update -qq && sudo apt-get install -y python3-cryptography
+      - name: Reserved loopback PostgreSQL TLS fixtures using native Prisma
+        run: node apps/api/scripts/prisma-tls-proof.cjs
+      - name: Offline evidence and lifecycle gates
+        run: node --test infra/staging/proof/*.test.cjs
