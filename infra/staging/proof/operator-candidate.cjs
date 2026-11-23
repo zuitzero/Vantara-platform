@@ -2,7 +2,10 @@
 // production session or membership writes. A real MFA adapter needs founder review.
 const { randomBytes, createHash, verify } = require('node:crypto');
 const { MARKER } = require('../showroom-policy.cjs');
-const fingerprint = value => createHash('sha256').update(value).digest('hex');
+const fingerprint = value => {
+  if (typeof value !== 'string' || value.length < 1 || value.length > 512) return deny();
+  return createHash('sha256').update(value).digest('hex');
+};
 const deny = () => { throw new Error('OPERATOR_ADMISSION_DENIED'); };
 class OperatorCandidate {
   #invitations = new Map(); #challenges = new Map(); #grants = new Map();
@@ -56,7 +59,8 @@ class OperatorCandidate {
         row.tenantId !== actor.tenantId || row.email !== actor.email) deny();
     row.state = 'CONSUMED';
     // Only this candidate's grant is created. It cannot mutate real app authority.
-    this.#grants.set(actor.userId, { tenantId: actor.tenantId, expiresAt: this.clock() + 900000 });
+    this.#grants.set(actor.userId, { tenantId: actor.tenantId, email: actor.email,
+      sessionHash: fingerprint(session), expiresAt: this.clock() + 900000 });
     return { role: 'HOTEL_STAFF', permission: 'connect.showroom.invite', expiresAt: this.clock() + 900000 };
   }
   async revoke(session, proof, code) {
@@ -68,7 +72,8 @@ class OperatorCandidate {
   async authorized(session) {
     const actor = await this.resolve(session); const grant = actor && this.#grants.get(actor.userId);
     return Boolean(actor && actor.role === 'HOTEL_STAFF' && actor.tenantType === 'HOTEL' && actor.recipientVerified &&
-      grant && grant.tenantId === actor.tenantId && grant.expiresAt > this.clock());
+      grant && grant.tenantId === actor.tenantId && grant.email === actor.email &&
+      grant.sessionHash === fingerprint(session) && grant.expiresAt > this.clock());
   }
   // Restart/recovery is fail-closed: no persisted grant can resurrect.
   close() { this.#invitations.clear(); this.#challenges.clear(); this.#grants.clear(); }
